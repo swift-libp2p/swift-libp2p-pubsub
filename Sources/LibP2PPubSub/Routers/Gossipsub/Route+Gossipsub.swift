@@ -12,6 +12,7 @@ func registerGossipsubRoute(_ app:Application) throws {
 
         fsub.on("1.0.0", handlers: [.varIntFrameDecoder]) { req -> EventLoopFuture<ResponseType<ByteBuffer>> in
             
+            guard req.application.isRunning else { return req.eventLoop.makeFailedFuture(BasePubSub.Errors.alreadyStopped) }
             return req.application.pubsub.gossipsub.processRequest(req)
             
         }
