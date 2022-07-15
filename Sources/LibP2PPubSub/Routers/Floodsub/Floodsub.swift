@@ -26,7 +26,7 @@ public class FloodSub:BasePubSub, PubSubCore, LifecycleHandler {
         let peerState = BasicPeerState(eventLoop: group.next()) //PeeringState(eventLoop: group.next())
         
         /// Init our Message Cache
-        let messageCache = TTLMessageStore(eventLoop: group.next(), timeToLiveInSeconds: 30)
+        let messageCache = BasicMessageCache(eventLoop: group.next(), timeToLiveInSeconds: 30)
         
         /// Register our floodsub route handler
         try registerFloodsubRoute(libp2p)
