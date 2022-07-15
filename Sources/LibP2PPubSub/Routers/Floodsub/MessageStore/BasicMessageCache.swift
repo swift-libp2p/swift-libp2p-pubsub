@@ -1,5 +1,5 @@
 //
-//  TTLMessageStore.swift
+//  BasicMessageCache.swift
 //  
 //
 //  Created by Brandon Toms on 4/23/22.
@@ -12,7 +12,7 @@ import LibP2P
 /// Creates and maintains a dictionary with messages keyed by their ID for quick access
 /// Alongside the deictionary it also keeps an ordered (newest -> oldest) list of message ids along with their arivale time for message expiration / deletion
 /// Every heartbeat we trim the message cache of all expired messages
-class TTLMessageStore:MessageStateProtocol {
+class BasicMessageCache:MessageStateProtocol {
     typealias MessageID = Data
     typealias Message = (topic: String, data: PubSubMessage)
     
