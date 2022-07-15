@@ -20,7 +20,7 @@ import LibP2P
 /// The slack between `gossip` and `history` accounts for the reaction time
 /// between when a message is advertised via IHAVE gossip, and the peer pulls it
 /// via an IWANT command.
-class MCache:MessageStateProtocol {
+class MessageCache:MessageStateProtocol {
     typealias MessageID = Data
     typealias Message = (topic:String, data:PubSubMessage)
     typealias HistoryWindow = [MessageID:Message]
