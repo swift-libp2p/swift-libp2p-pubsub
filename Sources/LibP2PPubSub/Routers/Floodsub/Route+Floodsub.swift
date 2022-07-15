@@ -12,7 +12,10 @@ func registerFloodsubRoute(_ app:Application) throws {
 
         fsub.on("1.0.0", handlers: [.varIntFrameDecoder]) { req -> EventLoopFuture<ResponseType<ByteBuffer>> in
             
-            guard req.application.isRunning else { return req.eventLoop.makeFailedFuture(BasePubSub.Errors.alreadyStopped) }
+            guard req.application.isRunning else {
+                req.logger.error("Floodsub::Recieved Request After App Shutdown")
+                return req.eventLoop.makeFailedFuture(BasePubSub.Errors.alreadyStopped)
+            }
             return req.application.pubsub.floodsub.processRequest(req)
             
         }
