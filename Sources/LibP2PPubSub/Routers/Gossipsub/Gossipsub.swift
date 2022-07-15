@@ -41,7 +41,7 @@ public class GossipSub:BasePubSub, PubSubCore, LifecycleHandler {
         let peerState = PeeringState(eventLoop: group.next())
         
         // Init our Message Cache
-        let messageCache = MCache(eventLoop: group.next(), historyWindows: mcacheWindowLength, gossipWindows: mcacheGossipLength)
+        let messageCache = MessageCache(eventLoop: group.next(), historyWindows: mcacheWindowLength, gossipWindows: mcacheGossipLength)
         
         // Regsiter our /meshsub/1.0.0 route
         try registerGossipsubRoute(libp2p)
@@ -206,7 +206,7 @@ public class GossipSub:BasePubSub, PubSubCore, LifecycleHandler {
     }
     
     private func generateIHaveMessages() -> EventLoopFuture<[RPC.ControlIHave]> {
-        guard let mc = self.messageCache as? MCache else { return self.eventLoop.makeFailedFuture(Errors.invalidMessageStateConformance) }
+        guard let mc = self.messageCache as? MessageCache else { return self.eventLoop.makeFailedFuture(Errors.invalidMessageStateConformance) }
         return self.eventLoop.flatSubmit({ //-> [String:[RPC.ControlIHave]] in
             var iHaves:[RPC.ControlIHave] = []
             return self.subscriptions.keys.compactMap { topic in
@@ -565,7 +565,7 @@ extension GossipSub {
         let ids = Set( iWants.map { iWant in iWant.messageIds }.reduce([], +) )
         
         /// Ask our message cache for the message associated with each id
-        return (self.messageCache as! MCache).get(messageIDs: ids, on: self.eventLoop).map { $0.compactMap { msg in msg.data as? RPC.Message } }.always { _ in
+        return (self.messageCache as! MessageCache).get(messageIDs: ids, on: self.eventLoop).map { $0.compactMap { msg in msg.data as? RPC.Message } }.always { _ in
             /// - TODO: Event sub, possibly remove later...
             self._eventHandler?(.inbound(.iWant(remotePeer, ids.map { $0 })))
         }
@@ -769,7 +769,7 @@ extension GossipSub {
                 return ps.streamsFor(peer).flatMap { peerStreams in
                     self.logger.trace("Sending Graft Message to \(peer)")
                     if includingRecentIHaves {
-                        return (self.messageCache as! MCache).getGossipIDs(topic: topic).flatMap { ids in
+                        return (self.messageCache as! MessageCache).getGossipIDs(topic: topic).flatMap { ids in
                             guard !ids.isEmpty else { return self._sendGraft(peer: peerStreams, for: topic, withRecentIHaves: nil) }
                             return self._sendGraft(peer: peerStreams, for: topic, withRecentIHaves: ids)
                         }
