@@ -301,7 +301,7 @@ open class BasePubSub {
     
     /// This is the main entry point for all PubSub logic
     /// Both inbound and outbound events get passed though here and routed to their specific handlers...
-    public func processRequest(_ req:Request) -> EventLoopFuture<ResponseType<ByteBuffer>> {
+    public func processRequest(_ req:Request) -> EventLoopFuture<Response<ByteBuffer>> {
         switch req.event {
         case .ready:
             // This should always succeed...
@@ -344,7 +344,7 @@ open class BasePubSub {
         }
     }
     
-    func handleNewInboundStream(_ req:Request, stream:LibP2P.Stream) -> EventLoopFuture<ResponseType<ByteBuffer>> {
+    func handleNewInboundStream(_ req:Request, stream:LibP2PCore.Stream) -> EventLoopFuture<Response<ByteBuffer>> {
         //self.logger.info("TODO::HandleNewInboundStream")
         guard let remotePeer = req.remotePeer else {
             self.logger.warning("Received new inbound stream without an authenticated remote peer attached! Closing stream!")
@@ -363,7 +363,7 @@ open class BasePubSub {
         }
     }
     
-    func handleNewOutboundStream(_ req:Request, stream:LibP2P.Stream) -> EventLoopFuture<ResponseType<ByteBuffer>> {
+    func handleNewOutboundStream(_ req:Request, stream:LibP2PCore.Stream) -> EventLoopFuture<Response<ByteBuffer>> {
         self.logger.debug("TODO::HandleNewOutboundStream")
         guard let remotePeer = req.remotePeer else {
             self.logger.warning("Received new outbound stream without an authenticated remote peer attached! Closing stream!")
@@ -421,7 +421,7 @@ open class BasePubSub {
     ///     5) Store the message in our Message Cache
     ///     6) Alert the Router of the message
     ///     7) Pass the message along to any subscribers
-    func handleInboundData(_ request:Request) -> EventLoopFuture<ResponseType<ByteBuffer>> {
+    func handleInboundData(_ request:Request) -> EventLoopFuture<Response<ByteBuffer>> {
         /// Record the time for metrics purposes
         let tic = DispatchTime.now().uptimeNanoseconds
         
