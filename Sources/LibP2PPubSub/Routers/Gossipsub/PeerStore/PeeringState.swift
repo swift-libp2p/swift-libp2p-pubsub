@@ -77,7 +77,7 @@ class PeeringState:PeerStateProtocol {
         self.state = .stopped
     }
     
-    func onPeerConnected(peerID peer: PeerID, stream:LibP2P.Stream) -> EventLoopFuture<Void> {
+    func onPeerConnected(peerID peer: PeerID, stream:LibP2PCore.Stream) -> EventLoopFuture<Void> {
         eventLoop.submit {
             if self.peers[peer.b58String] == nil {
                 switch stream.direction {
@@ -99,7 +99,7 @@ class PeeringState:PeerStateProtocol {
         }
     }
     
-    func attachInboundStream(_ peerID: PeerID, inboundStream: LibP2P.Stream, on loop:EventLoop? = nil) -> EventLoopFuture<Void> {
+    func attachInboundStream(_ peerID: PeerID, inboundStream: LibP2PCore.Stream, on loop:EventLoop? = nil) -> EventLoopFuture<Void> {
         eventLoop.submit {
             self.peers[peerID.b58String, default: .init(id: peerID)].attachInbound(stream: inboundStream)
 //            if self.peers[peerID.b58String] == nil {
@@ -113,7 +113,7 @@ class PeeringState:PeerStateProtocol {
         }.hop(to: loop ?? eventLoop)
     }
     
-    func attachOutboundStream(_ peerID: PeerID, outboundStream: LibP2P.Stream, on loop:EventLoop? = nil) -> EventLoopFuture<Void> {
+    func attachOutboundStream(_ peerID: PeerID, outboundStream: LibP2PCore.Stream, on loop:EventLoop? = nil) -> EventLoopFuture<Void> {
         eventLoop.submit {
             self.peers[peerID.b58String, default: .init(id: peerID)].attachOutbound(stream: outboundStream)
 //            if self.peers[peerID.b58String] == nil {
