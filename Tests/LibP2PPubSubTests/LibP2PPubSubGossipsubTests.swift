@@ -100,11 +100,6 @@ class LibP2PPubSubGossipsubTests: XCTestCase {
         try node1.start()
         try node2.start()
         
-        
-        /// Start the Gossipsub PubSub Routers
-        try node1.pubsub.gossipsub.start()
-        try node2.pubsub.gossipsub.start()
-        
         sleep(1)
         
         /// Have node1 reach out to node2
@@ -136,10 +131,6 @@ class LibP2PPubSubGossipsubTests: XCTestCase {
         node1.pubsub.gossipsub.dumpEventList()
         
         node2.pubsub.gossipsub.dumpEventList()
-        
-        /// Stop the PubSub Services
-        try? node1.pubsub.gossipsub.stop()
-        try? node2.pubsub.gossipsub.stop()
         
         /// Stop the nodes
         node1.shutdown()
@@ -233,10 +224,6 @@ class LibP2PPubSubGossipsubTests: XCTestCase {
         try node1.start()
         try node2.start()
         
-        /// Start the Gossipsub PubSub Routers
-        try node1.pubsub.gossipsub.start()
-        try node2.pubsub.gossipsub.start()
-        
         sleep(1)
         
         /// Have node1 reach out to node2
@@ -300,10 +287,6 @@ class LibP2PPubSubGossipsubTests: XCTestCase {
         print("Node 2 Received Messages")
         print(node2Messages.map { String(data: $0.data, encoding: .utf8) ?? "NIL" }.joined(separator: "\n") )
         
-        /// Stop the PubSub Services
-        try? node1.pubsub.gossipsub.stop()
-        try? node2.pubsub.gossipsub.stop()
-        
         /// Stop the nodes
         node1.shutdown()
         node2.shutdown()
@@ -347,8 +330,8 @@ class LibP2PPubSubGossipsubTests: XCTestCase {
         }
 
         /// Consider the ConenctionManagers max concurrent connections param while setting this number (especially for the beacon structure) (the default is 25 connections)
-        let nodesToTest:Int = 3
-        let structureToTest:NetworkStructure = .circular
+        let nodesToTest:Int = 10
+        let structureToTest:NetworkStructure = .beacon
         
         //guard nodesToTest > 2 else { XCTFail("We need at least 3 nodes to accurately perform this test..."); return }
 
@@ -395,9 +378,6 @@ class LibP2PPubSubGossipsubTests: XCTestCase {
         
         /// Start the libp2p nodes
         try nodes.forEach { try $0.libp2p.start() }
-        
-        /// Start the Gossipsub PubSub Routers
-        try nodes.forEach { try $0.libp2p.pubsub.gossipsub.start() }
         
         /// ******************************************
         /// The following logic determines the structure of the network
@@ -483,11 +463,8 @@ class LibP2PPubSubGossipsubTests: XCTestCase {
         waitForExpectations(timeout: 10, handler: nil)
 
         /// Wait an additional 2 seconds to ensure message propogation doesn't echo through the network causing duplicates
-        sleep(2)
-
-        /// Start the Gossipsub PubSub Routers
-        try nodes.forEach { try $0.libp2p.pubsub.gossipsub.stop() }
-
+        sleep(1)
+        
         nodes.first!.libp2p.peers.dumpAll()
         nodes.first!.libp2p.pubsub.gossipsub.dumpEventList()
         
@@ -529,6 +506,7 @@ class LibP2PPubSubGossipsubTests: XCTestCase {
     /// ```
     /// - Note: The JS example uses the `concatFromAndSequenceFields` messageID function
     func testGossipsubJSInterop() throws {
+        throw XCTSkip("Integration Test Skipped By Default")
         let app = try Application(.testing, peerID: PeerID(.Ed25519))
         app.logger.logLevel = .trace
 
@@ -592,14 +570,14 @@ class LibP2PPubSubGossipsubTests: XCTestCase {
     var nextPort:Int = 10000
     private func makeHost() throws -> Application {
         let lib = try Application(.testing, peerID: PeerID(.Ed25519))
+        lib.logger.logLevel = .info
+        lib.connectionManager.use(connectionType: BasicConnectionLight.self)
         lib.security.use(.noise)
         lib.muxers.use(.mplex)
         lib.pubsub.use(.gossipsub)
         lib.servers.use(.tcp(host: "127.0.0.1", port: nextPort))
         
         nextPort += 1
-        
-        lib.logger.logLevel = .debug
         
         return lib
     }
