@@ -10,7 +10,7 @@ import LibP2P
 func registerFloodsubRoute(_ app:Application) throws {
     app.group("floodsub") { fsub in
 
-        fsub.on("1.0.0", handlers: [.varIntFrameDecoder]) { req -> EventLoopFuture<ResponseType<ByteBuffer>> in
+        fsub.on("1.0.0", handlers: [.varIntFrameDecoder]) { req -> EventLoopFuture<Response<ByteBuffer>> in
             
             guard req.application.isRunning else {
                 req.logger.error("Floodsub::Recieved Request After App Shutdown")
