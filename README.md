@@ -27,8 +27,8 @@ This repo contains the pubsub implementation for swift-libp2p. We currently prov
 - Floodsub, which is the baseline flooding protocol.
 - Gossipsub, which is a more advanced router with mesh formation and gossip propagation.
 
-#### Note:
-- For more information check out the [Libp2p PubSub Spec](https://github.com/libp2p/specs/tree/master/pubsub) 
+> **Note**
+> For more information check out the [Libp2p PubSub Spec](https://github.com/libp2p/specs/tree/master/pubsub) 
 
 ## Install
 
