@@ -4,7 +4,7 @@
 [![](https://img.shields.io/badge/project-libp2p-yellow.svg?style=flat-square)](http://libp2p.io/)
 [![Swift Package Manager compatible](https://img.shields.io/badge/SPM-compatible-blue.svg?style=flat-square)](https://github.com/apple/swift-package-manager)
 
-> An API / abstraction for managing libp2p public/private key pairs and identities
+> A WIP implementation of FloodSub and GossipSub Routers for swift-libp2p
 
 ## Table of Contents
 
@@ -18,13 +18,16 @@
 - [License](#license)
 
 ## Overview
-This repo contains the canonical pubsub implementation for libp2p. We currently provide two message router options:
+This repo contains the pubsub implementation for swift-libp2p. We currently provide two message routers:
 
 - Floodsub, which is the baseline flooding protocol.
 - Gossipsub, which is a more advanced router with mesh formation and gossip propagation.
 
 #### Note:
 - For more information check out the [Libp2p PubSub Spec](https://github.com/libp2p/specs/tree/master/pubsub) 
+
+> ** Warning **
+> This is a WIP. It needs to be run with 
 
 ## Install
 
@@ -52,15 +55,12 @@ import LibP2PPubSub
 
 /// Configure libp2p
 let app = Application(...)
+// We have to use the `BasicConnectionLight` `Connection` implementation here! (the default `ARCConnection`, doesn't work due to the agressive timeout behaviour...)
+app.connectionManager.use(connectionType: BasicConnectionLight.self)
 // Tell it to use Floodsub
 app.pubsub.use(.floodsub)
 // Or tell it to use Gossipsub
 app.pubsub.use(.gossipsub)
-
-
-/// Start the service
-app.pubsub.start()
-
 
 /// Subscribe
 let subscription = try app.pubsub.gossipsub.subscribe(.init(topic: "news", signaturePolicy: .strictSign, validator: .acceptAll, messageIDFunc: .hashSequenceNumberAndFromFields))
@@ -93,8 +93,8 @@ subscription.unsubscribe()
 app.pubsub.unsubscribe("topic")
 
 
-/// Stop the service
-app.pubsub.stop()
+/// Stop the app
+app.shutdown()
 
 ```
 
@@ -113,8 +113,6 @@ app.pubsub.stop()
 Contributions are welcomed! This code is very much a proof of concept. I can guarantee you there's a better / safer way to accomplish the same results. Any suggestions, improvements, or even just critques, are welcome! 
 
 Let's make this code better together! 🤝
-
-[![](https://cdn.rawgit.com/jbenet/contribute-ipfs-gif/master/img/contribute.gif)](https://github.com/ipfs/community/blob/master/contributing.md)
 
 ## Credits
 
