@@ -12,35 +12,6 @@ import LibP2PMPLEX
 @testable import LibP2PPubSub
 
 class LibP2PPubSubFloodsubTests: XCTestCase {
-
-    override func setUpWithError() throws {
-        // Put setup code here. This method is called before the invocation of each test method in the class.
-    }
-
-    override func tearDownWithError() throws {
-        // Put teardown code here. This method is called after the invocation of each test method in the class.
-    }
-
-    func testExample() throws {
-        // This is an example of a functional test case.
-        // Use XCTAssert and related functions to verify your tests produce the correct results.
-        // Any test you write for XCTest can be annotated as throws and async.
-        // Mark your test throws to produce an unexpected failure when your test encounters an uncaught error.
-        // Mark your test async to allow awaiting for asynchronous code to complete. Check the results with assertions afterwards.
-    }
-
-    func testPerformanceExample() throws {
-        // This is an example of a performance test case.
-        self.measure {
-            // Put the code you want to measure the time of here.
-        }
-    }
-    
-    /// Some floodsub capable peers
-    /// /ip4/20.80.20.28/tcp/4001 -> 12D3KooWH2jndcSD6MC7cvs5zJNfMgHJFBc8zpebNS3L2HGXvQnS
-    /// /ip4/23.239.22.148/tcp/4001 -> 12D3KooWBidnLf4iRGgZpeFVCqQjNzAsSx2opZPbG8o9tpCf2rG5
-    /// /ip4/139.178.88.229/tcp/4001/p2p/12D3KooWK3rWCYssQkQHHm5q1K1qHUBRgmEp18sHDnxRRtL5kPsb
-    
     
     /// **************************************
     ///     Testing Internal Floodsub
@@ -106,11 +77,6 @@ class LibP2PPubSubFloodsubTests: XCTestCase {
         try node1.start()
         try node2.start()
         
-        
-        /// Start the Floodsub PubSub Routers
-        try node1.pubsub.floodsub.start()
-        try node2.pubsub.floodsub.start()
-        
         sleep(1)
         
         /// Have node1 reach out to node2
@@ -118,27 +84,23 @@ class LibP2PPubSubFloodsubTests: XCTestCase {
         
         /// Publish some messages...
         node1.eventLoopGroup.next().scheduleTask(in: .seconds(1)) {
+            print("Node 1 Publishing Message")
             subscription1.publish(node1Message.data(using: .utf8)!)
         }
         node2.eventLoopGroup.next().scheduleTask(in: .seconds(2)) {
+            print("Node 2 Publishing Message")
             subscription2.publish(node2Message.data(using: .utf8)!)
         }
         
         waitForExpectations(timeout: 10, handler: nil)
-        
-        //sleep(2)
-        
-        /// Check to see if we can poll our PeerStore for known peers that support '/chat/1.0.0'
+                
+        /// Check to see if we can poll our PeerStore for known peers that support '/floodsub/1.0.0'
         let peers = try node1.peers.getPeers(supportingProtocol: SemVerProtocol("/floodsub/1.0.0")!, on: nil).wait()
         XCTAssertEqual(peers.count, 1)
         XCTAssertEqual(peers.first!, node2.peerID.b58String)
         
         /// Dump the current state of our PeerStore
         node1.peers.dumpAll()
-        
-        /// Stop the PubSub Services
-        try? node1.pubsub.floodsub.stop()
-        try? node2.pubsub.floodsub.stop()
         
         /// Stop the nodes
         node1.shutdown()
@@ -160,13 +122,13 @@ class LibP2PPubSubFloodsubTests: XCTestCase {
         let node2 = try makeHost()
         
         /// Prepare our expectations
-        let expectationNode1ReceivedNode2Subscription = expectation(description: "Node1 received fruit subscription from Node2")
-        //let expectationNode1ReceivedNode2Unsubscription = expectation(description: "Node1 received fruit unsubscription from Node2")
-        let expectationNode1ReceivedNode2SecondSubscription = expectation(description: "Node1 received fruit subscription from Node2 for the second time")
+        let expectationNode1ReceivedNode2Subscription = expectation(description: "Node1 received news subscription from Node2")
+        //let expectationNode1ReceivedNode2Unsubscription = expectation(description: "Node1 received news unsubscription from Node2")
+        let expectationNode1ReceivedNode2SecondSubscription = expectation(description: "Node1 received news subscription from Node2 for the second time")
         
-        let expectationNode2ReceivedNode1Subscription = expectation(description: "Node2 received fruit subscription from Node1")
-        let expectationNode2ReceivedFirstNode1Message = expectation(description: "Node2 received first message from Node1")
-        let expectationNode2ReceivedSecondNode1Message = expectation(description: "Node2 received first message from Node1")
+        let expectationNode2ReceivedNode1Subscription = expectation(description: "Node2 received news subscription from Node1")
+        let expectationNode2ReceivedFirstNode1Message = expectation(description: "Node2 received news message from Node1")
+        let expectationNode2ReceivedSecondNode1Message = expectation(description: "Node2 received news message from Node1")
         
         let node1Message = "hot news!"
         
@@ -231,17 +193,13 @@ class LibP2PPubSubFloodsubTests: XCTestCase {
         try node1.start()
         try node2.start()
         
-        /// Start the Floodsub PubSub Routers
-        try node1.pubsub.floodsub.start()
-        try node2.pubsub.floodsub.start()
-        
         sleep(1)
         
         /// Have node1 reach out to node2
         try node2.newStream(to: node1.listenAddresses.first!, forProtocol: FloodSub.multicodec)
         
         /// Publish some messages...
-        node1.eventLoopGroup.next().scheduleRepeatedTask(initialDelay: .milliseconds(50), delay: .seconds(1)) { task in
+        let repeatedTask = node1.eventLoopGroup.next().scheduleRepeatedTask(initialDelay: .milliseconds(50), delay: .seconds(1)) { task in
             subscription1.publish(node1Message.data(using: .utf8)!)
         }
         
@@ -254,7 +212,7 @@ class LibP2PPubSubFloodsubTests: XCTestCase {
         
         //wait(for: [expectationNode1ReceivedNode2Unsubscription], timeout: 10, enforceOrder: false)
         
-        sleep(3)
+        sleep(1)
         
         /// Re subscribe Node2 to our `news` subscription
         subscription2 = try node2.pubsub.floodsub.subscribe(.init(topic: "news", signaturePolicy: .strictSign, validator: .acceptAll, messageIDFunc: .hashSequenceNumberAndFromFields))
@@ -265,7 +223,9 @@ class LibP2PPubSubFloodsubTests: XCTestCase {
                 
         try node2.pubsub.floodsub.unsubscribe(topic: "news").wait()
         
-        sleep(3)
+        repeatedTask.cancel()
+        
+        sleep(1)
         
         /// Check to see if we can poll our PeerStore for known peers that support '/chat/1.0.0'
         let peers = try node1.peers.getPeers(supportingProtocol: SemVerProtocol(FloodSub.multicodec)!, on: nil).wait()
@@ -276,10 +236,6 @@ class LibP2PPubSubFloodsubTests: XCTestCase {
         XCTAssertEqual(node2SubscriptionCount, 2)
         /// Ensure the Node2 received the appropriate number of `news` messages
         XCTAssertEqual(node2MessageCount, messagesPerBatch * 2)
-        
-        /// Stop the PubSub Services
-        try? node1.pubsub.floodsub.stop()
-        try? node2.pubsub.floodsub.stop()
         
         /// Stop the nodes
         node1.shutdown()
@@ -325,14 +281,15 @@ class LibP2PPubSubFloodsubTests: XCTestCase {
         }
 
         /// Consider the ConenctionManagers max concurrent connections param while setting this number (especially for the beacon structure) (the default is 25 connections)
-        let nodesToTest:Int = 3
-        let structureToTest:NetworkStructure = .linear
+        let nodesToTest:Int = 10
+        let structureToTest:NetworkStructure = .beacon2beacon
         
         //guard nodesToTest > 2 else { XCTFail("We need at least 3 nodes to accurately perform this test..."); return }
 
         /// Init the libp2p nodes, floodsub routers, and prepare our expectations
         var nodes:[Node] = try (0..<nodesToTest).map { idx in
             let node = try makeHost()
+            node.connectionManager.use(connectionType: BasicConnectionLight.self)
             return Node(
                 libp2p: node,
                 expectation: expectation(description: "Node\(idx) received all messages"),
@@ -374,9 +331,6 @@ class LibP2PPubSubFloodsubTests: XCTestCase {
         /// Start the libp2p nodes
         try nodes.forEach { try $0.libp2p.start() }
         
-        /// Start the Floodsub PubSub Routers
-        try nodes.forEach { try $0.libp2p.pubsub.floodsub.start() }
-        
         /// ******************************************
         /// The following logic determines the structure of the network
         /// ******************************************
@@ -396,8 +350,8 @@ class LibP2PPubSubFloodsubTests: XCTestCase {
             /// - Note: with 3 Nodes, this results in 6 wasted / redundant message propogations, 7 Nodes -> 14 redundant messages...
             /// Network Structure Diagram
             ///  n -> ... -> n -,
-            ///  ^              |
-            ///  '--------------'
+            ///  ^                  |
+            ///  '----------------'
             try nodes.enumerated().forEach { (idx, node) in
                 guard nodes.count > (idx+1) else {
                     try node.libp2p.newStream(to: nodes[0].libp2p.listenAddresses.first!, forProtocol: FloodSub.multicodec)
@@ -425,11 +379,11 @@ class LibP2PPubSubFloodsubTests: XCTestCase {
             /// Splits the network into Evens & Odds then connects node 0 and 1 to bridge the devide...
             ///
             /// Network Structure Diagram
-            ///  n              n
+            ///  n               n
             ///    \          /
             ///  n -- n -- n -- n
             ///    /          \
-            ///  n              n
+            ///  n               n
             ///
             try nodes.enumerated().forEach { (idx, node) in
                 guard idx != 0 else { return }
@@ -451,26 +405,23 @@ class LibP2PPubSubFloodsubTests: XCTestCase {
 
         /// Publish some messages...
         nodes.enumerated().forEach { (idx, node) in
-            node.libp2p.eventLoopGroup.next().scheduleTask(in: .milliseconds(Int64.random(in: 500...3_000))) {
+            node.libp2p.eventLoopGroup.next().scheduleTask(in: .milliseconds(Int64.random(in: 500...2_000))) {
                 //node.5!.publish(node.3.data(using: .utf8)!)
                 node.libp2p.pubsub.publish(node.messageToSend.data(using: .utf8)!.bytes, toTopic: "fruit")
             }
         }
 
         /// Wait for each node to receive each message
-        waitForExpectations(timeout: 30, handler: nil)
+        waitForExpectations(timeout: 10, handler: nil)
 
         /// Wait an additional 2 seconds to ensure message propogation doesn't echo through the network causing duplicates
         sleep(2)
-
-        /// Start the Floodsub PubSub Routers
-        try nodes.forEach { try $0.libp2p.pubsub.floodsub.stop() }
 
         nodes.first!.libp2p.peers.dumpAll()
         
         /// Stop the nodes
         nodes.forEach { $0.libp2p.shutdown() }
-        
+                
         /// Ensure that each node received every message...
         for node in nodes {
             XCTAssertEqual(node.messagesReceived.count, nodes.count)
@@ -507,6 +458,7 @@ class LibP2PPubSubFloodsubTests: XCTestCase {
     /// // copy the port number of the peer and place it in the `newStream` call below
     /// ```
     func testFloodsubJSInterop() throws {
+        throw XCTSkip("Integration Test Skipped By Default")
         let app = try Application(.testing, peerID: PeerID(.Ed25519))
         app.logger.logLevel = .trace
 
@@ -521,7 +473,7 @@ class LibP2PPubSubFloodsubTests: XCTestCase {
         let messageExpectation = expectation(description: "MessagesReceived")
         
         try app.start()
-        try app.pubsub.floodsub.start()
+        //try app.pubsub.floodsub.start()
         
         let subscription = try app.pubsub.floodsub.subscribe(.init(topic: topic, signaturePolicy: .strictSign, validator: .acceptAll, messageIDFunc: .hashSequenceNumberAndFromFields))
         subscription.on = { event -> EventLoopFuture<Void> in
@@ -556,23 +508,13 @@ class LibP2PPubSubFloodsubTests: XCTestCase {
         print("Shutting down libp2p chat...")
         app.peers.dumpAll()
         
-        try app.pubsub.floodsub.stop()
-        app.running?.stop()
+        //try app.pubsub.floodsub.stop()
+        //app.running?.stop()
         app.shutdown()
     }
     
-    // /ipfs-pubsub-direct-channel/v1/12D3KooW9qeCwGnG7ncn1YFh7Kth7oH93TCmMuAzdafV8WwGTMkX/12D3KooWBidnLf4iRGgZpeFVCqQjNzAsSx2opZPbG8o9tpCf2rG5
-    // /ipfs-pubsub-direct-channel/v1/12D3KooWBidnLf4iRGgZpeFVCqQjNzAsSx2opZPbG8o9tpCf2rG5/12D3KooWLtqhi2h8Mnb7NxfEWuAkVEkTi9FVLQPDV1PZ3ioQooW2
-    // /ipfs-pubsub-direct-channel/v1/12D3KooWBidnLf4iRGgZpeFVCqQjNzAsSx2opZPbG8o9tpCf2rG5/12D3KooWRzXVsB3cf57W9KzDD97EFVcQZFP8Cb4XBbmwK3SK3tME
-    // /ipfs-pubsub-direct-channel/v1/12D3KooWBPMbf4GEkV2UJeJvm6K5piYf2q1cJqKSqmBtC8Tk29ue/12D3KooWBidnLf4iRGgZpeFVCqQjNzAsSx2opZPbG8o9tpCf2rG5
-    // /orbitdb/zdpuAvac3bir6bWk8NpHL1A8SaktaADyDEmzDb4KvVU1Qhj1i/capsule-orbit-production-2-reposts
-    // /orbitdb/zdpuAxoBaqad71bpU92QUkkMvtZt279URxKEh9ab9DNvdPZi9/capsule-orbit-production-2-posts
-    // /orbitdb/zdpuAuKuhBfsLnqtt4izTUdGsBV5jjDa5kjrWtXYamDS9yvyZ/capsule-orbit-production-1-bookmarks
-    // /orbitdb/zdpuAmsMAKyrRpvN4T54qqioB4cdptC2Pi6bSpGoFdLWdHTMc/capsule-orbit-production-1-profiles
-    // /orbitdb/zdpuAkb6nqocAneQdh9zRuxUkJxFRugWZLccmumb61zNvbnqv/capsule-orbit-production-1-follow
-    // /orbitdb/zdpuAsoM3dLzFmpbUv2yieB6CnrGQfDc4z6bLf8Tek2aUWFsq/capsule-orbit-production-2-comments
-    // /orbitdb/zdpuAuwFt3H8Ts6fFgLtjhr1yM7wDJQxnFParZm9H2kqqH4bR/capsule-orbit-production-2-posts-deletion
     func testExternalFloodsubConnections() throws {
+        throw XCTSkip("Integration Test Skipped By Default")
         let app = try Application(.testing, peerID: PeerID(.Ed25519))
         app.logger.logLevel = .trace
 
@@ -635,8 +577,8 @@ class LibP2PPubSubFloodsubTests: XCTestCase {
         print("Shutting down libp2p chat...")
         app.peers.dumpAll()
         
-        try app.pubsub.floodsub.stop()
-        app.running?.stop()
+        //try app.pubsub.floodsub.stop()
+        //app.running?.stop()
         app.shutdown()
     }
     
@@ -649,14 +591,14 @@ class LibP2PPubSubFloodsubTests: XCTestCase {
     var nextPort:Int = 10000
     private func makeHost() throws -> Application {
         let lib = try Application(.testing, peerID: PeerID(.Ed25519))
+        lib.connectionManager.use(connectionType: BasicConnectionLight.self)
+        lib.logger.logLevel = .info
         lib.security.use(.noise)
         lib.muxers.use(.mplex)
         lib.pubsub.use(.floodsub)
         lib.servers.use(.tcp(host: "127.0.0.1", port: nextPort))
         
         nextPort += 1
-        
-        lib.logger.logLevel = .trace
         
         return lib
     }
