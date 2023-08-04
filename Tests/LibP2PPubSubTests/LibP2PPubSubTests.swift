@@ -14,6 +14,7 @@ final class LibP2PPubSubTests: XCTestCase {
         app.servers.use(.tcp(host: "127.0.0.1", port: 10000))
         app.security.use(.noise)
         app.muxers.use(.mplex)
+        app.pubsub.use(.floodsub)
         
         try app.start()
         
