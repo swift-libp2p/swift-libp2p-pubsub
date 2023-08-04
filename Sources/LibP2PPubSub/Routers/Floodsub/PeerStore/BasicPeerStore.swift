@@ -7,211 +7,6 @@
 
 import LibP2P
 
-/// Basic Peer Cache
-//class BasicPeerCache:PeerState {
-//
-//    typealias Topic = String
-//    typealias PID = String
-//
-//    /// The state of our BasicPeerCache
-//    var state: ServiceLifecycleState
-//
-//    /// A set of ids of all known peers that support floodsub.
-//    var peers:[PID:(PeerID, Stream)]
-//
-//    /// A map of subscribed topics to the set of peers in our overlay mesh for that topic.
-//    var topics:[Topic:[PID]]
-//
-//    /// The eventloop that this PeeringState is constrained to
-//    internal let eventLoop:EventLoop
-//    /// Our Logger
-//    private let logger:Logger
-//
-//    required init(eventLoop:EventLoop) {
-//        print("PubSub::BasicPeerCache Instantiated...")
-//        self.eventLoop = eventLoop
-//        self.logger = Logger(label: "com.swift.libp2p.pubsub.pstate[\(UUID().uuidString.prefix(5))]")
-//        self.state = .stopped
-//
-//        /// Initialize our caches
-//        self.peers = [:]
-//        self.topics = [:]
-//    }
-//
-//    func start() throws {
-//        guard self.state == .stopped else { throw BasePubSub.Errors.alreadyRunning }
-//        self.logger.info("Starting")
-//
-//        // Do stuff here, maybe re init our caches??
-//
-//        self.state = .started
-//    }
-//
-//    func stop() throws {
-//        guard self.state == .started || self.state == .starting else { throw BasePubSub.Errors.alreadyStopped }
-//        if self.state == .stopping {
-//            self.logger.info("Force Quiting!")
-//        }
-//        self.logger.info("Stopping")
-//
-//        // Do stuff here, maybe clear our caches??
-//
-//        self.state = .stopped
-//    }
-//
-//    func onPeerConnected(_ peer: Peer.PeerInfo) {
-//        self.logger.warning("We Dont Support onPeerConnected(:Peer.PeerInfo)")
-//    }
-//
-//    func onPeerConnected2(peerID:PeerID, stream:Stream) {
-//        let _ = eventLoop.submit {
-//            if self.peers[peerID.b58String] == nil {
-//                //Add the new peer to our `peers` list
-//                self.peers[peerID.b58String] = (peerID, stream)
-//                self.logger.info("Added \(peerID) to our peering state (peers2)")
-//            } else {
-//                self.logger.warning("Received a peer connected event for a peer that was already present in our PeeringState")
-//            }
-//        }
-//    }
-//
-//    func onPeerDisconnected(_ peer: PeerID) {
-//        let _ = eventLoop.submit {
-//            self.peers.removeValue(forKey: peer.b58String)
-//        }
-//    }
-//    /// Adds a new peer (who supports our base PubSub protocol (aka floodsub / gossipsub)) to the peers cache
-//    func addNewPeer(_ peer:Peer.PeerInfo) -> EventLoopFuture<Bool> {
-//        eventLoop.submit { () -> Bool in
-//            self.logger.warning("We dont support addNewPeer")
-//            return false
-//        }
-//    }
-//
-//    /// Removes the specified peer from our peers cache
-//    func removePeer(_ peer:PeerID) -> EventLoopFuture<Void> {
-//        eventLoop.submit {
-//            self.peers.removeValue(forKey: peer.b58String)
-//        }
-//    }
-//
-//    /// This is called when we receive an RPC message from a peer containing the topics
-//    func update(topics:[Topic], for peer:PeerID) -> EventLoopFuture<Void> {
-//        eventLoop.submit {
-//            let pid = peer.b58String
-//            for topic in topics {
-//
-//                if var subs = self.topics[topic] {
-//                    /// Add the peer to the existing topic entry...
-//                    if !subs.contains(pid) {
-//                        subs.append(pid)
-//                        self.topics[topic] = subs
-//                    }
-//                } else {
-//                    /// Create a new topic entry...
-//                    self.topics[topic] = [pid]
-//                }
-//
-//            }
-//        }
-//    }
-//
-//    /// This is called when we receive an RPC message from a peer containing the topics
-//    func update(subscriptions:[Topic:Bool], for peer:PeerID) -> EventLoopFuture<Void> {
-//        eventLoop.submit {
-//            let pid = peer.b58String
-//            for (topic, subscribed) in subscriptions {
-//                if subscribed == true {
-//
-//                    if var subs = self.topics[topic] {
-//                        /// Add the peer to the existing topic entry...
-//                        if !subs.contains(pid) {
-//                            subs.append(pid)
-//                            self.topics[topic] = subs
-//                        }
-//                    } else {
-//                        /// Create a new topic entry...
-//                        self.topics[topic] = [pid]
-//                    }
-//
-//                } else { // Unregister this PID from our topic list
-//                    self.topics[topic]?.removeAll(where: {$0 == pid})
-//                }
-//            }
-//            self.logger.info("Updated subscriptions for \(peer)")
-//        }
-//    }
-//
-//    func topicSubscriptions(on loop:EventLoop? = nil) -> EventLoopFuture<[Topic]> {
-//        eventLoop.submit { () -> [Topic] in
-//            self.topics.map { $0.key }
-//        }.hop(to: loop ?? eventLoop)
-//    }
-//
-//    /// This method updates our PeerState to reflect a new subscription
-//    ///
-//    /// It will...
-//    /// - Create a new entry in our Subscription Mesh for the specified topic
-//    /// - Bootstrap the new entry with any known peers that also subscribe to the topic
-//    /// Returns a list of PeerIDs that can be used to send grafting messages to
-//    func subscribe(to topic:Topic, on loop:EventLoop? = nil) -> EventLoopFuture<[PID]> {
-//        eventLoop.submit { () -> [PID] in
-//            /// Make sure we're not already subscribed...
-//            if let peers = self.mesh[topic] { return peers }
-//
-//            /// Check to see if we're aware of the topic (is it in our fanout set)
-//            if let knownTopic = self.fanout.removeValue(forKey: topic) {
-//                /// Copy the topic/peer entry over to our subscribed mesh (are we allowed to do this? Or do we need to wait for RPC messages from peers to add them to our mesh set)
-//                self.mesh[topic] = knownTopic
-//                return knownTopic
-//            } else {
-//                /// This is a new topic that we're not aware of, so make an empty entry
-//                self.mesh[topic] = []
-//                return []
-//            }
-//        }
-//    }
-//
-//    /// This method updates our PeerState to reflect a subscription removal
-//    ///
-//    /// It will remove the latest known peer subscription state from our Subcription Mesh and transfer
-//    /// that state into our fanout set for future reference.
-//    /// Returns a list of PeerIDs that can be used to send unsub messages to
-//    func unsubscribe(from topic:Topic, on loop:EventLoop? = nil) -> EventLoopFuture<[PID]> {
-//        eventLoop.submit { () -> [PID] in
-//            /// Check to see if we're aware of the topic (is it in our fanout set)
-//            if let knownTopic = self.mesh.removeValue(forKey: topic) {
-//                // Should we transfer this entry back to our fanout set?
-//                self.fanout.updateValue(knownTopic, forKey: topic)
-//                /// return the list of peers that are effected by this unsubing
-//                return knownTopic
-//            }
-//
-//            return []
-//        }
-//    }
-//
-//    /// Returns a list of all known peers subscribed to the specified topic
-//    ///
-//    /// - TODO: Make this mo better... right now we do a ton of work to extract the PeerID for each subscriber (this could be solved if we changed peers to a dictionary with the PID as the key).
-//    func peersSubscribedTo(topic:Topic, on loop:EventLoop? = nil) -> EventLoopFuture<[PeerID]> {
-//        eventLoop.submit { () -> [PeerID] in
-//            self.logger.warning("We dont support peersSubscribedTo(:Topic,:EventLoop)")
-//            return []
-//        }.hop(to: loop ?? eventLoop)
-//    }
-//
-//    func peersSubscribedTo2(topic:Topic, on loop:EventLoop? = nil) -> EventLoopFuture<[(PeerID, Stream)]> {
-//        eventLoop.submit { () -> [(PeerID, Stream)] in
-//            (self.topics[topic] ?? []).compactMap { pid in
-//                self.peers[pid]
-//            }
-//        }.hop(to: loop ?? eventLoop)
-//    }
-//
-//}
-
-
 class BasicPeerState:PeerStateProtocol {
     
     typealias Topic = String
@@ -250,7 +45,6 @@ class BasicPeerState:PeerStateProtocol {
         self.logger.info("Starting")
         
         // Do stuff here, maybe re init our caches??
-        
         self.state = .started
     }
     
@@ -266,7 +60,7 @@ class BasicPeerState:PeerStateProtocol {
         self.state = .stopped
     }
     
-    func onPeerConnected(peerID peer: PeerID, stream:LibP2P.Stream) -> EventLoopFuture<Void> {
+    func onPeerConnected(peerID peer: PeerID, stream:LibP2PCore.Stream) -> EventLoopFuture<Void> {
         eventLoop.submit {
             if self.peers[peer.b58String] == nil {
                 switch stream.direction {
@@ -288,7 +82,7 @@ class BasicPeerState:PeerStateProtocol {
         }
     }
     
-    func attachInboundStream(_ peerID: PeerID, inboundStream: LibP2P.Stream, on loop:EventLoop? = nil) -> EventLoopFuture<Void> {
+    func attachInboundStream(_ peerID: PeerID, inboundStream: LibP2PCore.Stream, on loop:EventLoop? = nil) -> EventLoopFuture<Void> {
         eventLoop.submit {
             self.peers[peerID.b58String, default: .init(id: peerID)].attachInbound(stream: inboundStream)
 //            if self.peers[peerID.b58String] == nil {
@@ -302,7 +96,7 @@ class BasicPeerState:PeerStateProtocol {
         }.hop(to: loop ?? self.eventLoop)
     }
     
-    func attachOutboundStream(_ peerID: PeerID, outboundStream: LibP2P.Stream, on loop:EventLoop? = nil) -> EventLoopFuture<Void> {
+    func attachOutboundStream(_ peerID: PeerID, outboundStream: LibP2PCore.Stream, on loop:EventLoop? = nil) -> EventLoopFuture<Void> {
         eventLoop.submit {
             self.peers[peerID.b58String, default: .init(id: peerID)].attachOutbound(stream: outboundStream)
 //            if self.peers[peerID.b58String] == nil {
