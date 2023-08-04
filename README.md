@@ -6,6 +6,9 @@
 
 > A WIP implementation of FloodSub and GossipSub Routers for swift-libp2p
 
+> **Warning**
+> This is a WIP. It probably won't work the way it's supposed to. Please file issues accordingly.
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -25,9 +28,6 @@ This repo contains the pubsub implementation for swift-libp2p. We currently prov
 
 #### Note:
 - For more information check out the [Libp2p PubSub Spec](https://github.com/libp2p/specs/tree/master/pubsub) 
-
-> ** Warning **
-> This is a WIP. It needs to be run with 
 
 ## Install
 
