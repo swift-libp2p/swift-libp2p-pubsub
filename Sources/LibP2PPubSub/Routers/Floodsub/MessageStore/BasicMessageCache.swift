@@ -6,6 +6,7 @@
 //
 
 import LibP2P
+import CoreFoundation
 
 /// BasicMessageCache - A simple message cache that uses time based message expiration
 ///
