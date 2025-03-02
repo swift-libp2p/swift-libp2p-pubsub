@@ -111,7 +111,7 @@ app.shutdown()
 
 ## Contributing
 
-Contributions are welcomed! This code is very much a proof of concept. I can guarantee you there's a better / safer way to accomplish the same results. Any suggestions, improvements, or even just critques, are welcome! 
+Contributions are welcomed! This code is very much a proof of concept. I can guarantee you there's a better / safer way to accomplish the same results. Any suggestions, improvements, or even just critiques, are welcome! 
 
 Let's make this code better together! 🤝
 
