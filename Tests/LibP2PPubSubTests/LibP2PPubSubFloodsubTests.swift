@@ -695,7 +695,7 @@ class LibP2PPubSubFloodsubTests: XCTestCase {
         }
     }
 
-    var nextPort: Int = 10000
+    var nextPort: Int = 10200
     private func makeHost() throws -> Application {
         let lib = try Application(.testing, peerID: PeerID(.Ed25519))
         lib.connectionManager.use(connectionType: BasicConnectionLight.self)

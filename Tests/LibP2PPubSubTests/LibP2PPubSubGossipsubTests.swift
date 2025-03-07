@@ -638,7 +638,7 @@ class LibP2PPubSubGossipsubTests: XCTestCase {
         app.shutdown()
     }
 
-    var nextPort: Int = 10000
+    var nextPort: Int = 10100
     private func makeHost() throws -> Application {
         let lib = try Application(.testing, peerID: PeerID(.Ed25519))
         lib.logger.logLevel = .info
