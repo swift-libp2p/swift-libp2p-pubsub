@@ -295,7 +295,7 @@ class BasicPeerState: PeerStateProtocol {
     func metaPeerIDs(on loop: EventLoop? = nil) -> EventLoopFuture<[Topic: [PeerID]]> {
         eventLoop.submit { () -> [Topic: [PeerID]] in
             var metaPeers: [Topic: [PeerID]] = [:]
-            self.fanout.forEach { topic, pids in
+            for (topic, pids) in self.fanout {
                 metaPeers[topic] = self.idsToPeers(pids)
             }
             return metaPeers

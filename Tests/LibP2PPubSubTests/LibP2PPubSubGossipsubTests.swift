@@ -424,7 +424,7 @@ class LibP2PPubSubGossipsubTests: XCTestCase {
         }
 
         /// Start the libp2p nodes
-        try nodes.forEach { try $0.libp2p.start() }
+        for node in nodes { try node.libp2p.start() }
 
         /// ******************************************
         /// The following logic determines the structure of the network
@@ -435,7 +435,7 @@ class LibP2PPubSubGossipsubTests: XCTestCase {
             ///
             /// Network Structure Diagram
             ///  n -> ... -> n
-            try nodes.enumerated().forEach { (idx, node) in
+            for (idx, node) in nodes.enumerated() {
                 guard nodes.count > (idx + 1) else { return }
                 try node.libp2p.newStream(
                     to: nodes[idx + 1].libp2p.listenAddresses.first!,
@@ -450,7 +450,7 @@ class LibP2PPubSubGossipsubTests: XCTestCase {
             ///  n -> ... -> n -,
             ///  ^                |
             ///  '--------------'
-            try nodes.enumerated().forEach { (idx, node) in
+            for (idx, node) in nodes.enumerated() {
                 guard nodes.count > (idx + 1) else {
                     try node.libp2p.newStream(
                         to: nodes[0].libp2p.listenAddresses.first!,
@@ -474,7 +474,7 @@ class LibP2PPubSubGossipsubTests: XCTestCase {
             ///  : /
             ///  n
             ///
-            try nodes.enumerated().forEach { (idx, node) in
+            for (idx, node) in nodes.enumerated() {
                 guard idx != 0 else { return }
                 try node.libp2p.newStream(to: nodes[0].libp2p.listenAddresses.first!, forProtocol: GossipSub.multicodec)
             }
@@ -489,7 +489,7 @@ class LibP2PPubSubGossipsubTests: XCTestCase {
             ///    /          \
             ///  n              n
             ///
-            try nodes.enumerated().forEach { (idx, node) in
+            for (idx, node) in nodes.enumerated() {
                 guard idx != 0 else { return }
                 if idx == 1 {
                     /// Have Node1 reach out to Node0
@@ -517,7 +517,7 @@ class LibP2PPubSubGossipsubTests: XCTestCase {
         }
 
         /// Publish some messages...
-        nodes.enumerated().forEach { (idx, node) in
+        for node in nodes {
             node.libp2p.eventLoopGroup.next().scheduleTask(in: .milliseconds(Int64.random(in: 500...3_000))) {
                 //node.5!.publish(node.3.data(using: .utf8)!)
                 node.libp2p.pubsub.publish(node.messageToSend.data(using: .utf8)!.bytes, toTopic: "fruit")
@@ -534,7 +534,7 @@ class LibP2PPubSubGossipsubTests: XCTestCase {
         nodes.first!.libp2p.pubsub.gossipsub.dumpEventList()
 
         /// Stop the nodes
-        nodes.forEach { $0.libp2p.shutdown() }
+        for node in nodes { node.libp2p.shutdown() }
 
         /// Ensure that each node received every message...
         for node in nodes {

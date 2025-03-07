@@ -82,7 +82,7 @@ public class GossipSub: BasePubSub, PubSubCore, LifecycleHandler {
 
     public func dumpEventList() {
         self.logger.notice("*** Event List ***")
-        self.eventList.forEach { event in
+        for event in self.eventList {
             self.logger.notice("\(event.description)")
         }
         self.logger.notice("******************")
@@ -737,7 +737,7 @@ extension GossipSub {
                 "We have \(res.iWant?.messageIds.count ?? 0) iWants in response to the iHaves we received"
             )
 
-            res.graftRejections.forEach { reject in
+            for reject in res.graftRejections {
                 self._eventHandler?(.outbound(.prune(request.remotePeer!, reject.topicID)))
             }
             if !res.iWantResponses.isEmpty {

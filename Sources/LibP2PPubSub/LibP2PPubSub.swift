@@ -551,7 +551,7 @@ open class BasePubSub {
         return EventLoopFuture.whenAllComplete(tasks, on: request.eventLoop).map { results in
             self.logger.debug("Processed Inbound RPC Message in \(DispatchTime.now().uptimeNanoseconds - tic)ns")
             var successes: Int = 0
-            results.forEach { if case .success = $0 { successes += 1 } }
+            for result in results { if case .success = result { successes += 1 } }
             if successes != results.count {
                 self.logger.trace("Performed \(results.count) tasks")
                 self.logger.trace("\(successes) successes")
@@ -624,8 +624,8 @@ open class BasePubSub {
 
         /// Create a [Topic:Subscribed] dictionary from the subscription options messages
         var subs: [String: Bool] = [:]
-        rpc.subs.forEach {
-            subs[$0.topicID] = $0.subscribe
+        for sub in rpc.subs {
+            subs[sub.topicID] = sub.subscribe
         }
 
         /// Log the subscription changes...
@@ -985,9 +985,9 @@ open class BasePubSub {
                     return
                 }
 
-                subs.forEach {
-                    try? $0.write(subPayload)
-                    self._eventHandler?(.outbound(.subscriptionChange($0.id, [config.topic: true])))
+                for sub in subs {
+                    try? sub.write(subPayload)
+                    self._eventHandler?(.outbound(.subscriptionChange(sub.id, [config.topic: true])))
                 }
             }
         }.hop(to: loop ?? eventLoop)
@@ -1039,12 +1039,12 @@ open class BasePubSub {
             //return self.peerState.peersSubscribedTo(topic: topic, on: loop).flatMap { subs -> EventLoopFuture<Void> in
             do {
                 let rpc = try self.generateUnsubPayload(forTopics: [topic])
-                subs.forEach {
-                    if (try? $0.write(rpc)) != nil {
-                        self.logger.trace("Sent our `\(topic)` unsub to \($0.id)")
-                        self._eventHandler?(.outbound(.subscriptionChange($0.id, [topic: false])))
+                for sub in subs {
+                    if (try? sub.write(rpc)) != nil {
+                        self.logger.trace("Sent our `\(topic)` unsub to \(sub.id)")
+                        self._eventHandler?(.outbound(.subscriptionChange(sub.id, [topic: false])))
                     } else {
-                        self.logger.trace("Failed to send our `\(topic)` unsub to \($0.id)")
+                        self.logger.trace("Failed to send our `\(topic)` unsub to \(sub.id)")
                     }
                 }
 
@@ -1079,14 +1079,14 @@ extension BasePubSub {
     internal func computeMessageIds(_ messages: [PubSubMessage]) -> EventLoopFuture<[Data: PubSubMessage]> {
         self.eventLoop.submit {
             var msgs: [Data: PubSubMessage] = [:]
-            messages.forEach { message in
+            for message in messages {
                 /// Ensure the message has a topic and that we have a messageIDFunc registered for that topic
                 guard let firstTopic = message.topicIds.first, let messageIDFunc = self.messageIDFunctions[firstTopic]
                 else {
                     self.logger.warning(
                         "No MessageIDFunction defined for topic '\(message.topicIds.first ?? "")'. Dropping Message."
                     )
-                    return
+                    continue
                 }
                 /// Compute the message id and insert it into our dictionary
                 msgs[Data(messageIDFunc(message))] = message
@@ -1113,7 +1113,7 @@ extension BasePubSub {
         return self.seenCache.filter(ids: Set(ids), returningOnly: .unknown, on: self.eventLoop).map {
             unknownIDs -> [Data: PubSubMessage] in
             var newMessages: [Data: PubSubMessage] = [:]
-            unknownIDs.forEach { newMessages[$0] = messages[$0] }
+            for unknownID in unknownIDs { newMessages[unknownID] = messages[unknownID] }
             return newMessages
         }
     }
