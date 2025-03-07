@@ -372,7 +372,7 @@ class PeeringState: PeerStateProtocol {
         eventLoop.submit { () -> [PeerID] in
             let subbed = self.mesh[topic] ?? []
             //let known = self.fanout[topic] ?? []
-            return self.idsToPeers(subbed /*+ known*/)
+            return self.idsToPeers(subbed) // known
         }.hop(to: loop ?? eventLoop)
     }
 
@@ -380,7 +380,7 @@ class PeeringState: PeerStateProtocol {
         eventLoop.submit { () -> [PubSub.Subscriber] in
             let subbed = self.mesh[topic] ?? []
             //let known = self.fanout[topic] ?? []
-            return self.idsToSubs(subbed /*+ known*/)
+            return self.idsToSubs(subbed) // known
         }.hop(to: loop ?? eventLoop)
     }
 

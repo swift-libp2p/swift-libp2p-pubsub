@@ -897,7 +897,8 @@ open class BasePubSub {
                         let bytes = try BasePubSub.MessagePrefix + msg.serializedData()
                         msgToSend = msg
                         msgToSend.signature = try self.peerID.signature(for: bytes)
-                        msgToSend.key = try Data(self.peerID.marshalPublicKey())  // pubkey.data and marshalPublicKey have an extra 0801 prepended
+                        // pubkey.data and marshalPublicKey have an extra 0801 prepended
+                        msgToSend.key = try Data(self.peerID.marshalPublicKey())
                         self.logger.trace("Signed Message: \(msgToSend)")
                     case .strictNoSign:
                         // Nothing to do...
