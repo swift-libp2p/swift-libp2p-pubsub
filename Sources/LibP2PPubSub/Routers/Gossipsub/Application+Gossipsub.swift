@@ -24,8 +24,8 @@ extension Application.PubSubServices.Provider {
             }
         }
     }
-    
-    public static func gossipsub(emitSelf:Bool) -> Self {
+
+    public static func gossipsub(emitSelf: Bool) -> Self {
         .init {
             $0.pubsub.use { app -> GossipSub in
                 let gsub = try! GossipSub(group: app.eventLoopGroup, libp2p: app, emitSelf: emitSelf)
@@ -37,33 +37,35 @@ extension Application.PubSubServices.Provider {
 }
 
 extension Application.PubSubServices {
-    
-    public var gossipsub:GossipSub {
+
+    public var gossipsub: GossipSub {
         guard let gsub = self.service(for: GossipSub.self) else {
-            fatalError("Gossipsub accessed without instantiating it first. Use app.pubsub.use(.gossipsub) to initialize a shared Gossipsub instance.")
+            fatalError(
+                "Gossipsub accessed without instantiating it first. Use app.pubsub.use(.gossipsub) to initialize a shared Gossipsub instance."
+            )
         }
         return gsub
     }
-    
-//    public var gossipsub: GossipSub {
-//        let lock = self.application.locks.lock(for: Key.self)
-//        lock.lock()
-//        defer { lock.unlock() }
-//        if let existing = self.application.storage[Key.self] {
-//            return existing
-//        }
-//        let new = ClientBootstrap(group: self.application.eventLoopGroup)
-//            // Enable SO_REUSEADDR.
-//            .channelOption(ChannelOptions.socketOption(.so_reuseaddr), value: 1)
-//            .channelInitializer { channel in
-//                // Do we install the upgrader here or do we let the Connection install the handlers???
-//                //channel.pipeline.addHandlers(upgrader.channelHandlers(mode: .initiator)) // The MSS Handler itself needs to have access to the Connection Delegate
-//                channel.eventLoop.makeSucceededVoidFuture()
-//            }
-//
-//        self.application.storage.set(Key.self, to: new)
-//
-//        return new
-//    }
-    
+
+    //    public var gossipsub: GossipSub {
+    //        let lock = self.application.locks.lock(for: Key.self)
+    //        lock.lock()
+    //        defer { lock.unlock() }
+    //        if let existing = self.application.storage[Key.self] {
+    //            return existing
+    //        }
+    //        let new = ClientBootstrap(group: self.application.eventLoopGroup)
+    //            // Enable SO_REUSEADDR.
+    //            .channelOption(ChannelOptions.socketOption(.so_reuseaddr), value: 1)
+    //            .channelInitializer { channel in
+    //                // Do we install the upgrader here or do we let the Connection install the handlers???
+    //                //channel.pipeline.addHandlers(upgrader.channelHandlers(mode: .initiator)) // The MSS Handler itself needs to have access to the Connection Delegate
+    //                channel.eventLoop.makeSucceededVoidFuture()
+    //            }
+    //
+    //        self.application.storage.set(Key.self, to: new)
+    //
+    //        return new
+    //    }
+
 }

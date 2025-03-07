@@ -14,23 +14,22 @@
 
 import LibP2P
 
-extension RPC.SubOpts:SubOptsCore { }
+extension RPC.SubOpts: SubOptsCore {}
 
-extension RPC.Message:PubSubMessage { }
+extension RPC.Message: PubSubMessage {}
 
-extension RPC:RPCMessageCore {
+extension RPC: RPCMessageCore {
     var subs: [SubOptsCore] {
         self.subscriptions.map { $0 as SubOptsCore }
     }
-    
+
     var messages: [PubSubMessage] {
         self.msgs.map { $0 as PubSubMessage }
     }
 }
 
-
 extension RPC {
-    init(_ rpc:RPCMessageCore) throws {
+    init(_ rpc: RPCMessageCore) throws {
         self.msgs = rpc.messages.map {
             var msg = RPC.Message()
             msg.data = $0.data

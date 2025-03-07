@@ -12,14 +12,15 @@
 //
 //===----------------------------------------------------------------------===//
 
-import XCTest
-@testable import LibP2PPubSub
 import LibP2P
-import LibP2PNoise
 import LibP2PMPLEX
+import LibP2PNoise
+import XCTest
+
+@testable import LibP2PPubSub
 
 final class LibP2PPubSubTests: XCTestCase {
-    
+
     func testExample() throws {
         let app = try Application(.testing, peerID: PeerID(.Ed25519))
         app.logger.logLevel = .trace
@@ -29,12 +30,12 @@ final class LibP2PPubSubTests: XCTestCase {
         app.security.use(.noise)
         app.muxers.use(.mplex)
         app.pubsub.use(.floodsub)
-        
+
         try app.start()
-        
+
         sleep(2)
-        
+
         app.shutdown()
     }
-    
+
 }

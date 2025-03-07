@@ -24,11 +24,16 @@ extension Application.PubSubServices.Provider {
             }
         }
     }
-    
-    public static func floodsub(emitSelf:Bool) -> Self {
+
+    public static func floodsub(emitSelf: Bool) -> Self {
         .init {
             $0.pubsub.use { app -> FloodSub in
-                let fsub = try! FloodSub(group: app.eventLoopGroup, libp2p: app, debugName: "Floodsub", emitSelf: emitSelf)
+                let fsub = try! FloodSub(
+                    group: app.eventLoopGroup,
+                    libp2p: app,
+                    debugName: "Floodsub",
+                    emitSelf: emitSelf
+                )
                 app.lifecycle.use(fsub)
                 return fsub
             }
@@ -37,10 +42,12 @@ extension Application.PubSubServices.Provider {
 }
 
 extension Application.PubSubServices {
-    
-    public var floodsub:FloodSub {
+
+    public var floodsub: FloodSub {
         guard let fsub = self.service(for: FloodSub.self) else {
-            fatalError("Floodsub accessed without instantiating it first. Use app.pubsub.use(.floodsub) to initialize a shared Floodsub instance.")
+            fatalError(
+                "Floodsub accessed without instantiating it first. Use app.pubsub.use(.floodsub) to initialize a shared Floodsub instance."
+            )
         }
         return fsub
     }

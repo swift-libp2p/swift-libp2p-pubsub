@@ -12,14 +12,15 @@
 //
 //===----------------------------------------------------------------------===//
 
-import XCTest
 import LibP2P
-import LibP2PNoise
 import LibP2PMPLEX
+import LibP2PNoise
+import XCTest
+
 @testable import LibP2PPubSub
 
 class LibP2PPubSubGossipsubTests: XCTestCase {
-    
+
     /// **************************************
     ///     Testing Internal Gossipsub
     /// **************************************
@@ -27,68 +28,86 @@ class LibP2PPubSubGossipsubTests: XCTestCase {
         /// Init the libp2p nodes
         let node1 = try makeHost()
         let node2 = try makeHost()
-        
+
         /// Prepare our expectations
-        let expectationNode1ReceivedNode2Subscription = expectation(description: "Node1 received fruit subscription from Node2")
+        let expectationNode1ReceivedNode2Subscription = expectation(
+            description: "Node1 received fruit subscription from Node2"
+        )
         let expectationNode1ReceivedNode2Message = expectation(description: "Node1 received message from Node2")
-        let expectationNode2ReceivedNode1Subscription = expectation(description: "Node2 received fruit subscription from Node1")
+        let expectationNode2ReceivedNode1Subscription = expectation(
+            description: "Node2 received fruit subscription from Node1"
+        )
         let expectationNode2ReceivedNode1Message = expectation(description: "Node2 received message from Node1")
-        
+
         let node1Message = "banana"
         let node2Message = "pineapple"
-        
+
         /// Node1 subscribes to topic 'fruit'
-        let subscription1 = try node1.pubsub.gossipsub.subscribe(.init(topic: "fruit", signaturePolicy: .strictSign, validator: .acceptAll, messageIDFunc: .concatFromAndSequenceFields))
+        let subscription1 = try node1.pubsub.gossipsub.subscribe(
+            .init(
+                topic: "fruit",
+                signaturePolicy: .strictSign,
+                validator: .acceptAll,
+                messageIDFunc: .concatFromAndSequenceFields
+            )
+        )
         subscription1.on = { event -> EventLoopFuture<Void> in
             switch event {
             case .newPeer(let peer):
                 node1.logger.info("Node1::NewPeer -> \(peer)")
                 XCTAssertEqual(peer, node2.peerID)
                 expectationNode1ReceivedNode2Subscription.fulfill()
-                
+
             case .data(let pubSubMessage):
                 node1.logger.info("Node1 -> \(String(data: pubSubMessage.data, encoding: .utf8) ?? "NIL")")
                 XCTAssertEqual(String(data: pubSubMessage.data, encoding: .utf8), node2Message)
                 expectationNode1ReceivedNode2Message.fulfill()
-                
+
             case .error(let error):
                 node1.logger.error("Node1 Error: \(error)")
                 XCTFail(error.localizedDescription)
             }
             return node1.eventLoopGroup.next().makeSucceededVoidFuture()
         }
-        
+
         /// Node2 subcribes to topic 'fruit'
         //let subscription2 = try fSub2.subscribe(topic: "fruit")
-        let subscription2 = try node2.pubsub.gossipsub.subscribe(.init(topic: "fruit", signaturePolicy: .strictSign, validator: .acceptAll, messageIDFunc: .concatFromAndSequenceFields))
+        let subscription2 = try node2.pubsub.gossipsub.subscribe(
+            .init(
+                topic: "fruit",
+                signaturePolicy: .strictSign,
+                validator: .acceptAll,
+                messageIDFunc: .concatFromAndSequenceFields
+            )
+        )
         subscription2.on = { event -> EventLoopFuture<Void> in
             switch event {
             case .newPeer(let peer):
                 node2.logger.info("Node2::NewPeer -> \(peer)")
                 XCTAssertEqual(peer, node1.peerID)
                 expectationNode2ReceivedNode1Subscription.fulfill()
-                
+
             case .data(let pubSubMessage):
                 node2.logger.info("Node2 -> \(String(data: pubSubMessage.data, encoding: .utf8) ?? "NIL")")
                 XCTAssertEqual(String(data: pubSubMessage.data, encoding: .utf8), node1Message)
                 expectationNode2ReceivedNode1Message.fulfill()
-                
+
             case .error(let error):
                 node2.logger.error("Node2 Error: \(error)")
                 XCTFail(error.localizedDescription)
             }
             return node2.eventLoopGroup.next().makeSucceededVoidFuture()
         }
-        
+
         /// Start the libp2p nodes
         try node1.start()
         try node2.start()
-        
+
         sleep(1)
-        
+
         /// Have node1 reach out to node2
         try node1.newStream(to: node2.listenAddresses.first!, forProtocol: "/meshsub/1.0.0")
-        
+
         /// Publish some messages...
         node1.eventLoopGroup.next().scheduleTask(in: .seconds(2)) {
             subscription1.publish(node1Message.data(using: .utf8)!)
@@ -96,34 +115,33 @@ class LibP2PPubSubGossipsubTests: XCTestCase {
         node2.eventLoopGroup.next().scheduleTask(in: .seconds(3)) {
             subscription2.publish(node2Message.data(using: .utf8)!)
         }
-        
+
         waitForExpectations(timeout: 10, handler: nil)
-        
+
         subscription1.unsubscribe()
         subscription2.unsubscribe()
-        
+
         sleep(1)
-        
+
         /// Check to see if we can poll our PeerStore for known peers that support '/chat/1.0.0'
         let peers = try node1.peers.getPeers(supportingProtocol: SemVerProtocol("/meshsub/1.0.0")!, on: nil).wait()
         XCTAssertEqual(peers.count, 1)
         XCTAssertEqual(peers.first!, node2.peerID.b58String)
-        
+
         /// Dump the current state of our PeerStore
         node1.peers.dumpAll()
-        
+
         node1.pubsub.gossipsub.dumpEventList()
-        
+
         node2.pubsub.gossipsub.dumpEventList()
-        
+
         /// Stop the nodes
         node1.shutdown()
         node2.shutdown()
-        
+
         print("All Done!")
     }
-    
-    
+
     /// **************************************
     ///     Testing Internal Gossipsub Subscriptions
     /// **************************************
@@ -135,20 +153,37 @@ class LibP2PPubSubGossipsubTests: XCTestCase {
         /// Init the libp2p nodes
         let node1 = try makeHost()
         let node2 = try makeHost()
-        
+
         /// Prepare our expectations
-        let expectationNode1ReceivedNode2Subscription = expectation(description: "Node1 received fruit subscription from Node2")
+        let expectationNode1ReceivedNode2Subscription = expectation(
+            description: "Node1 received fruit subscription from Node2"
+        )
         //let expectationNode1ReceivedNode2Unsubscription = expectation(description: "Node1 received fruit unsubscription from Node2")
-        let expectationNode1ReceivedNode2SecondSubscription = expectation(description: "Node1 received fruit subscription from Node2 for the second time")
-        
-        let expectationNode2ReceivedNode1Subscription = expectation(description: "Node2 received fruit subscription from Node1")
-        let expectationNode2ReceivedFirstNode1Message = expectation(description: "Node2 received first message from Node1")
-        let expectationNode2ReceivedSecondNode1Message = expectation(description: "Node2 received first message from Node1")
-        
+        let expectationNode1ReceivedNode2SecondSubscription = expectation(
+            description: "Node1 received fruit subscription from Node2 for the second time"
+        )
+
+        let expectationNode2ReceivedNode1Subscription = expectation(
+            description: "Node2 received fruit subscription from Node1"
+        )
+        let expectationNode2ReceivedFirstNode1Message = expectation(
+            description: "Node2 received first message from Node1"
+        )
+        let expectationNode2ReceivedSecondNode1Message = expectation(
+            description: "Node2 received first message from Node1"
+        )
+
         let node1Message = "hot news!"
         var node2SubscriptionCount = 0
         /// Node1 subscribes to topic 'fruit'
-        let subscription1 = try node1.pubsub.gossipsub.subscribe(.init(topic: "news", signaturePolicy: .strictSign, validator: .acceptAll, messageIDFunc: .hashSequenceNumberAndFromFields))
+        let subscription1 = try node1.pubsub.gossipsub.subscribe(
+            .init(
+                topic: "news",
+                signaturePolicy: .strictSign,
+                validator: .acceptAll,
+                messageIDFunc: .hashSequenceNumberAndFromFields
+            )
+        )
         subscription1.on = { event -> EventLoopFuture<Void> in
             switch event {
             case .newPeer(let peer):
@@ -160,28 +195,29 @@ class LibP2PPubSubGossipsubTests: XCTestCase {
                 } else if node2SubscriptionCount == 2 {
                     expectationNode1ReceivedNode2SecondSubscription.fulfill()
                 }
-                
+
             case .data(let pubSubMessage):
                 node1.logger.info("Node1 -> \(pubSubMessage)")
                 XCTFail("Node 1 shouldn't receive data during this test")
-                
+
             case .error(let error):
                 node1.logger.error("Node1 Error: \(error)")
                 XCTFail(error.localizedDescription)
             }
             return node1.eventLoopGroup.next().makeSucceededVoidFuture()
         }
-        
+
         /// Node2 subcribes to topic 'fruit'
-        var node2Messages:[PubSubMessage] = []
+        var node2Messages: [PubSubMessage] = []
         var fulfillmentCount = 0
-        let subscriptionHandler:(PubSub.SubscriptionEvent) -> EventLoopFuture<Void> = { event -> EventLoopFuture<Void> in
+        let subscriptionHandler: (PubSub.SubscriptionEvent) -> EventLoopFuture<Void> = {
+            event -> EventLoopFuture<Void> in
             switch event {
             case .newPeer(let peer):
                 node2.logger.info("Node2::NewPeer -> \(peer)")
                 XCTAssertEqual(peer, node1.peerID)
                 expectationNode2ReceivedNode1Subscription.fulfill()
-                
+
             case .data(let pubSubMessage):
                 node2.logger.info("Node2 -> \(String(data: pubSubMessage.data, encoding: .utf8) ?? "NIL")")
                 //XCTAssertEqual(String(data: pubSubMessage.data, encoding: .utf8), node1Message)
@@ -193,92 +229,119 @@ class LibP2PPubSubGossipsubTests: XCTestCase {
                     expectationNode2ReceivedSecondNode1Message.fulfill()
                     fulfillmentCount += 1
                 }
-                
+
             case .error(let error):
                 node2.logger.error("Node2 Error: \(error)")
                 XCTFail(error.localizedDescription)
             }
             return node2.eventLoopGroup.next().makeSucceededVoidFuture()
         }
-        
-        var subscription2 = try node2.pubsub.gossipsub.subscribe(.init(topic: "news", signaturePolicy: .strictSign, validator: .acceptAll, messageIDFunc: .hashSequenceNumberAndFromFields))
+
+        var subscription2 = try node2.pubsub.gossipsub.subscribe(
+            .init(
+                topic: "news",
+                signaturePolicy: .strictSign,
+                validator: .acceptAll,
+                messageIDFunc: .hashSequenceNumberAndFromFields
+            )
+        )
         subscription2.on = subscriptionHandler
-        
+
         /// Start the libp2p nodes
         try node1.start()
         try node2.start()
-        
+
         sleep(1)
-        
+
         /// Have node1 reach out to node2
         try node2.newStream(to: node1.listenAddresses.first!, forProtocol: GossipSub.multicodec)
-        
+
         /// Publish some messages...
         var counter = 0
-        var node1Messages:[String] = []
-        let task = node1.eventLoopGroup.next().scheduleRepeatedTask(initialDelay: .milliseconds(500), delay: .seconds(1)) { task in
+        var node1Messages: [String] = []
+        let task = node1.eventLoopGroup.next().scheduleRepeatedTask(
+            initialDelay: .milliseconds(500),
+            delay: .seconds(1)
+        ) { task in
             let msg = "\(node1Message)[\(counter)]"
             subscription1.publish(msg.data(using: .utf8)!)
             node1Messages.append(msg)
             counter += 1
         }
-        
+
         /// Wait for initial subscription alerts and the first message to arrive on Node 2
-        wait(for: [expectationNode1ReceivedNode2Subscription, expectationNode2ReceivedNode1Subscription, expectationNode2ReceivedFirstNode1Message], timeout: 10, enforceOrder: false)
-        
+        wait(
+            for: [
+                expectationNode1ReceivedNode2Subscription, expectationNode2ReceivedNode1Subscription,
+                expectationNode2ReceivedFirstNode1Message,
+            ],
+            timeout: 10,
+            enforceOrder: false
+        )
+
         //sleep(1)
-        
+
         /// Unsubscribe Node2 from our `news` subscription
         //try node2.pubsub.gossipsub.unsubscribe(topic: "news").wait()
         subscription2.unsubscribe()
-        
+
         //wait(for: [expectationNode1ReceivedNode2Unsubscription], timeout: 10, enforceOrder: false)
-        
+
         sleep(2)
-        
+
         /// Re subscribe Node2 to our `news` subscription
-        subscription2 = try node2.pubsub.gossipsub.subscribe(.init(topic: "news", signaturePolicy: .strictSign, validator: .acceptAll, messageIDFunc: .hashSequenceNumberAndFromFields))
+        subscription2 = try node2.pubsub.gossipsub.subscribe(
+            .init(
+                topic: "news",
+                signaturePolicy: .strictSign,
+                validator: .acceptAll,
+                messageIDFunc: .hashSequenceNumberAndFromFields
+            )
+        )
         subscription2.on = subscriptionHandler
-        
+
         /// Wait for the second subscription alert on Node1 and the second `news` message to arrive at Node2
-        wait(for: [expectationNode1ReceivedNode2SecondSubscription, expectationNode2ReceivedSecondNode1Message], timeout: 10, enforceOrder: false)
-        
+        wait(
+            for: [expectationNode1ReceivedNode2SecondSubscription, expectationNode2ReceivedSecondNode1Message],
+            timeout: 10,
+            enforceOrder: false
+        )
+
         /// Stop sending messages
         task.cancel()
-        
+
         // Wait a couple senconds
         sleep(2)
-        
+
         //try node2.pubsub.gossipsub.unsubscribe(topic: "news").wait()
         subscription2.unsubscribe()
-        
+
         sleep(1)
-        
+
         /// Check to see if we can poll our PeerStore for known peers that support '/chat/1.0.0'
         let peers = try node1.peers.getPeers(supportingProtocol: SemVerProtocol(GossipSub.multicodec)!, on: nil).wait()
         XCTAssertEqual(peers.count, 1)
         XCTAssertEqual(peers.first!, node2.peerID.b58String)
-        
+
         /// Ensure Node1 Subscription count equals 2 (Node2 subscribed twice)
         XCTAssertEqual(node2SubscriptionCount, 2)
         /// Ensure the Node2 received the appropriate number of `news` messages
         //XCTAssertGreaterThanOrEqual(node2Messages.count, messagesPerBatch * 2)
         XCTAssertGreaterThanOrEqual(node2Messages.count, 2)
         XCTAssertLessThanOrEqual(node2Messages.count, node1Messages.count)
-        
+
         print("Node 1 Sent Messages")
         print(node1Messages)
         print("Node 2 Received Messages")
-        print(node2Messages.map { String(data: $0.data, encoding: .utf8) ?? "NIL" }.joined(separator: "\n") )
-        
+        print(node2Messages.map { String(data: $0.data, encoding: .utf8) ?? "NIL" }.joined(separator: "\n"))
+
         /// Stop the nodes
         node1.shutdown()
         node2.shutdown()
-        
+
         print("All Done!")
     }
-    
-    
+
     /// **************************************
     ///  Testing Gossipsub Message Propogation
     /// **************************************
@@ -296,15 +359,15 @@ class LibP2PPubSubGossipsubTests: XCTestCase {
             case beacon
             case beacon2beacon
         }
-        
-        class Node {
-            let libp2p:Application
-            let expectation:XCTestExpectation
-            let messageToSend:String
-            var messagesReceived:[String]
-            var handler:PubSub.SubscriptionHandler!
 
-            init(libp2p:Application, expectation:XCTestExpectation, messageToSend:String) {
+        class Node {
+            let libp2p: Application
+            let expectation: XCTestExpectation
+            let messageToSend: String
+            var messagesReceived: [String]
+            var handler: PubSub.SubscriptionHandler!
+
+            init(libp2p: Application, expectation: XCTestExpectation, messageToSend: String) {
                 self.libp2p = libp2p
                 self.expectation = expectation
                 self.messageToSend = messageToSend
@@ -314,13 +377,13 @@ class LibP2PPubSubGossipsubTests: XCTestCase {
         }
 
         /// Consider the ConenctionManagers max concurrent connections param while setting this number (especially for the beacon structure) (the default is 25 connections)
-        let nodesToTest:Int = 10
-        let structureToTest:NetworkStructure = .beacon
-        
+        let nodesToTest: Int = 10
+        let structureToTest: NetworkStructure = .beacon
+
         //guard nodesToTest > 2 else { XCTFail("We need at least 3 nodes to accurately perform this test..."); return }
 
         /// Init the libp2p nodes, gossipsub routers, and prepare our expectations
-        var nodes:[Node] = try (0..<nodesToTest).map { idx in
+        var nodes: [Node] = try (0..<nodesToTest).map { idx in
             let node = try makeHost()
             return Node(
                 libp2p: node,
@@ -344,14 +407,14 @@ class LibP2PPubSubGossipsubTests: XCTestCase {
                 switch event {
                 case .newPeer(let peer):
                     node.libp2p.logger.debug("Node[\(node.libp2p.peerID)]::NewPeer -> \(peer)")
-                    
+
                 case .data(let pubSubMessage):
                     node.libp2p.logger.debug("Node[\(node.libp2p.peerID)]::Data -> \(pubSubMessage)")
                     node.messagesReceived.append(String(data: pubSubMessage.data, encoding: .utf8)!)
                     if node.messagesReceived.count == nodesToTest {
                         node.expectation.fulfill()
                     }
-                    
+
                 case .error(let error):
                     node.libp2p.logger.error("Node[\(node.libp2p.peerID)]::Error -> \(error)")
                     XCTFail(error.localizedDescription)
@@ -359,10 +422,10 @@ class LibP2PPubSubGossipsubTests: XCTestCase {
                 return node.libp2p.eventLoopGroup.next().makeSucceededVoidFuture()
             }
         }
-        
+
         /// Start the libp2p nodes
         try nodes.forEach { try $0.libp2p.start() }
-        
+
         /// ******************************************
         /// The following logic determines the structure of the network
         /// ******************************************
@@ -373,10 +436,13 @@ class LibP2PPubSubGossipsubTests: XCTestCase {
             /// Network Structure Diagram
             ///  n -> ... -> n
             try nodes.enumerated().forEach { (idx, node) in
-                guard nodes.count > (idx+1) else { return }
-                try node.libp2p.newStream(to: nodes[idx + 1].libp2p.listenAddresses.first!, forProtocol: GossipSub.multicodec)
+                guard nodes.count > (idx + 1) else { return }
+                try node.libp2p.newStream(
+                    to: nodes[idx + 1].libp2p.listenAddresses.first!,
+                    forProtocol: GossipSub.multicodec
+                )
             }
-            
+
         case .circular:
             /// If we tie the ends together, we have a circular network graph
             /// - Note: with 3 Nodes, this results in 6 wasted / redundant message propogations, 7 Nodes -> 14 redundant messages...
@@ -385,13 +451,19 @@ class LibP2PPubSubGossipsubTests: XCTestCase {
             ///  ^                |
             ///  '--------------'
             try nodes.enumerated().forEach { (idx, node) in
-                guard nodes.count > (idx+1) else {
-                    try node.libp2p.newStream(to: nodes[0].libp2p.listenAddresses.first!, forProtocol: GossipSub.multicodec)
+                guard nodes.count > (idx + 1) else {
+                    try node.libp2p.newStream(
+                        to: nodes[0].libp2p.listenAddresses.first!,
+                        forProtocol: GossipSub.multicodec
+                    )
                     return
                 }
-                try node.libp2p.newStream(to: nodes[idx + 1].libp2p.listenAddresses.first!, forProtocol: GossipSub.multicodec)
+                try node.libp2p.newStream(
+                    to: nodes[idx + 1].libp2p.listenAddresses.first!,
+                    forProtocol: GossipSub.multicodec
+                )
             }
-            
+
         case .beacon:
             /// Have each node reach out to the zeroeth node (a beacon set up)
             ///
@@ -406,7 +478,7 @@ class LibP2PPubSubGossipsubTests: XCTestCase {
                 guard idx != 0 else { return }
                 try node.libp2p.newStream(to: nodes[0].libp2p.listenAddresses.first!, forProtocol: GossipSub.multicodec)
             }
-            
+
         case .beacon2beacon:
             /// Splits the network into Evens & Odds then connects node 0 and 1 to bridge the devide...
             ///
@@ -421,18 +493,27 @@ class LibP2PPubSubGossipsubTests: XCTestCase {
                 guard idx != 0 else { return }
                 if idx == 1 {
                     /// Have Node1 reach out to Node0
-                    try node.libp2p.newStream(to: nodes[0].libp2p.listenAddresses.first!, forProtocol: GossipSub.multicodec)
+                    try node.libp2p.newStream(
+                        to: nodes[0].libp2p.listenAddresses.first!,
+                        forProtocol: GossipSub.multicodec
+                    )
                     return
                 }
                 if idx % 2 == 0 {
                     /// If the node is an even number (have it reach out to Node0, our even beacon node)
-                    try node.libp2p.newStream(to: nodes[0].libp2p.listenAddresses.first!, forProtocol: GossipSub.multicodec)
+                    try node.libp2p.newStream(
+                        to: nodes[0].libp2p.listenAddresses.first!,
+                        forProtocol: GossipSub.multicodec
+                    )
                 } else {
                     /// Otherwise the node must be odd (have it reach out to Node1, our odd beacon node)
-                    try node.libp2p.newStream(to: nodes[1].libp2p.listenAddresses.first!, forProtocol: GossipSub.multicodec)
+                    try node.libp2p.newStream(
+                        to: nodes[1].libp2p.listenAddresses.first!,
+                        forProtocol: GossipSub.multicodec
+                    )
                 }
             }
-            
+
         }
 
         /// Publish some messages...
@@ -448,13 +529,13 @@ class LibP2PPubSubGossipsubTests: XCTestCase {
 
         /// Wait an additional 2 seconds to ensure message propogation doesn't echo through the network causing duplicates
         sleep(1)
-        
+
         nodes.first!.libp2p.peers.dumpAll()
         nodes.first!.libp2p.pubsub.gossipsub.dumpEventList()
-        
+
         /// Stop the nodes
         nodes.forEach { $0.libp2p.shutdown() }
-        
+
         /// Ensure that each node received every message...
         for node in nodes {
             XCTAssertEqual(node.messagesReceived.count, nodes.count)
@@ -472,7 +553,7 @@ class LibP2PPubSubGossipsubTests: XCTestCase {
 
         print("All Done!")
     }
-    
+
     /// **************************************
     ///      Testing JS Interoperability
     /// **************************************
@@ -503,11 +584,18 @@ class LibP2PPubSubGossipsubTests: XCTestCase {
         let topic = "news"
         var expectedMessageCount = 4
         let messageExpectation = expectation(description: "MessagesReceived")
-        
+
         try app.start()
         try app.pubsub.gossipsub.start()
-        
-        let subscription = try app.pubsub.gossipsub.subscribe(.init(topic: topic, signaturePolicy: .strictSign, validator: .acceptAll, messageIDFunc: .concatFromAndSequenceFields))
+
+        let subscription = try app.pubsub.gossipsub.subscribe(
+            .init(
+                topic: topic,
+                signaturePolicy: .strictSign,
+                validator: .acceptAll,
+                messageIDFunc: .concatFromAndSequenceFields
+            )
+        )
         subscription.on = { event -> EventLoopFuture<Void> in
             switch event {
             case .newPeer(let peer):
@@ -515,43 +603,42 @@ class LibP2PPubSubGossipsubTests: XCTestCase {
                 app.eventLoopGroup.next().scheduleTask(in: .milliseconds(100)) {
                     app.pubsub.publish("Hello from swift!".data(using: .utf8)!.bytes, toTopic: topic)
                 }
-                
+
             case .data(let pubSubMessage):
                 print(String(data: pubSubMessage.data, encoding: .utf8) ?? "NIL")
                 expectedMessageCount -= 1
                 if expectedMessageCount == 0 {
                     messageExpectation.fulfill()
                 }
-                
+
             case .error(let error):
                 app.logger.error("Error: \(error)")
             }
             return app.eventLoopGroup.next().makeSucceededVoidFuture()
         }
-        
+
         try? app.newStream(to: Multiaddr("/ip4/192.168.1.19/tcp/56758"), forProtocol: "/ipfs/ping/1.0.0")
 
         waitForExpectations(timeout: 30)
-        
+
         let _ = app.pubsub.publish("Goodbyte from swift!".data(using: .utf8)!.bytes, toTopic: topic)
         //subscription.publish("Goodbyte from swift!".data(using: .utf8)!.bytes)
-        
+
         subscription.unsubscribe()
-        
+
         sleep(1)
-                
+
         print("Shutting down libp2p chat...")
         app.peers.dumpAll()
-        
+
         app.pubsub.gossipsub.dumpEventList()
-        
+
         try app.pubsub.gossipsub.stop()
         app.running?.stop()
         app.shutdown()
     }
-    
-    
-    var nextPort:Int = 10000
+
+    var nextPort: Int = 10000
     private func makeHost() throws -> Application {
         let lib = try Application(.testing, peerID: PeerID(.Ed25519))
         lib.logger.logLevel = .info
@@ -560,9 +647,9 @@ class LibP2PPubSubGossipsubTests: XCTestCase {
         lib.muxers.use(.mplex)
         lib.pubsub.use(.gossipsub)
         lib.servers.use(.tcp(host: "127.0.0.1", port: nextPort))
-        
+
         nextPort += 1
-        
+
         return lib
     }
 }
