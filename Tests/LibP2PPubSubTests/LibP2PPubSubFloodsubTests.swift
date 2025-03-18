@@ -167,17 +167,16 @@ class LibP2PPubSubFloodsubTests: XCTestCase {
         )
 
         let node1Message = "hot news!"
+        let subscriptionConfig = PubSub.SubscriptionConfig(
+            topic: "news",
+            signaturePolicy: .strictSign,
+            validator: .acceptAll,
+            messageIDFunc: .hashSequenceNumberAndFromFields
+        )
 
         var node2SubscriptionCount = 0
         /// Node1 subscribes to topic 'fruit'
-        let subscription1 = try node1.pubsub.floodsub.subscribe(
-            .init(
-                topic: "news",
-                signaturePolicy: .strictSign,
-                validator: .acceptAll,
-                messageIDFunc: .hashSequenceNumberAndFromFields
-            )
-        )
+        let subscription1 = try node1.pubsub.floodsub.subscribe(subscriptionConfig)
         subscription1.on = { event -> EventLoopFuture<Void> in
             switch event {
             case .newPeer(let peer):
@@ -230,14 +229,7 @@ class LibP2PPubSubFloodsubTests: XCTestCase {
             return node2.eventLoopGroup.next().makeSucceededVoidFuture()
         }
 
-        var subscription2 = try node2.pubsub.floodsub.subscribe(
-            .init(
-                topic: "news",
-                signaturePolicy: .strictSign,
-                validator: .acceptAll,
-                messageIDFunc: .hashSequenceNumberAndFromFields
-            )
-        )
+        var subscription2 = try node2.pubsub.floodsub.subscribe(subscriptionConfig)
         subscription2.on = subscriptionHandler
 
         /// Start the libp2p nodes
@@ -276,14 +268,7 @@ class LibP2PPubSubFloodsubTests: XCTestCase {
         sleep(1)
 
         /// Re subscribe Node2 to our `news` subscription
-        subscription2 = try node2.pubsub.floodsub.subscribe(
-            .init(
-                topic: "news",
-                signaturePolicy: .strictSign,
-                validator: .acceptAll,
-                messageIDFunc: .hashSequenceNumberAndFromFields
-            )
-        )
+        subscription2 = try node2.pubsub.floodsub.subscribe(subscriptionConfig)
         subscription2.on = subscriptionHandler
 
         /// Wait for the second subscription alert on Node1 and the second `news` message to arrive at Node2
