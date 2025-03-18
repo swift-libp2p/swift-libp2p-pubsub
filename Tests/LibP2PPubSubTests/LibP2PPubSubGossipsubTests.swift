@@ -424,7 +424,7 @@ class LibP2PPubSubGossipsubTests: XCTestCase {
         }
 
         /// Start the libp2p nodes
-        for node in nodes { try node.libp2p.start() }
+        for node in nodes { XCTAssertNoThrow(try node.libp2p.start()) }
 
         /// ******************************************
         /// The following logic determines the structure of the network
@@ -528,7 +528,7 @@ class LibP2PPubSubGossipsubTests: XCTestCase {
         waitForExpectations(timeout: 10, handler: nil)
 
         /// Wait an additional 2 seconds to ensure message propogation doesn't echo through the network causing duplicates
-        sleep(1)
+        sleep(2)
 
         nodes.first!.libp2p.peers.dumpAll()
         nodes.first!.libp2p.pubsub.gossipsub.dumpEventList()

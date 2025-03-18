@@ -200,7 +200,7 @@ class LibP2PPubSubFloodsubTests: XCTestCase {
             return node1.eventLoopGroup.next().makeSucceededVoidFuture()
         }
 
-        /// Node2 subcribes to topic 'fruit'
+        /// Node2 subcribes to topic 'news'
         //let subscription2 = try fSub2.subscribe(topic: "fruit")
         var node2MessageCount = 0
         let messagesPerBatch = 2
@@ -386,7 +386,9 @@ class LibP2PPubSubFloodsubTests: XCTestCase {
         }
 
         /// Start the libp2p nodes
-        for node in nodes { try node.libp2p.start() }
+        for node in nodes { XCTAssertNoThrow(try node.libp2p.start()) }
+
+        print("Structuring Peers - \(structureToTest)")
 
         /// ******************************************
         /// The following logic determines the structure of the network
@@ -479,7 +481,6 @@ class LibP2PPubSubFloodsubTests: XCTestCase {
                     )
                 }
             }
-
         }
 
         /// Publish some messages...
@@ -491,7 +492,7 @@ class LibP2PPubSubFloodsubTests: XCTestCase {
         }
 
         /// Wait for each node to receive each message
-        waitForExpectations(timeout: 10, handler: nil)
+        waitForExpectations(timeout: 10)
 
         /// Wait an additional 2 seconds to ensure message propogation doesn't echo through the network causing duplicates
         sleep(2)
@@ -516,7 +517,7 @@ class LibP2PPubSubFloodsubTests: XCTestCase {
 
         let waitExp = expectation(description: "Another Wait")
         wait(for: 1, expectation: waitExp)
-        waitForExpectations(timeout: 20, handler: nil)
+        waitForExpectations(timeout: 20)
 
         print("All Done!")
     }
