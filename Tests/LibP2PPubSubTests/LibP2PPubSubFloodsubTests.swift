@@ -398,9 +398,13 @@ class LibP2PPubSubFloodsubTests: XCTestCase {
             /// Network Structure Diagram
             ///  n -> ... -> n
             for (idx, node) in nodes.enumerated() {
-                guard nodes.count > (idx + 1) else { return }
-                try node.libp2p.newStream(
-                    to: nodes[idx + 1].libp2p.listenAddresses.first!,
+                guard nodes.count > (idx + 1) else { continue }
+                guard let nextPeerAddress = nodes[idx + 1].libp2p.listenAddresses.first else {
+                    XCTFail("Next Peer Address not available")
+                    continue
+                }
+                try? node.libp2p.newStream(
+                    to: nextPeerAddress,
                     forProtocol: FloodSub.multicodec
                 )
             }
@@ -418,7 +422,7 @@ class LibP2PPubSubFloodsubTests: XCTestCase {
                         to: nodes[0].libp2p.listenAddresses.first!,
                         forProtocol: FloodSub.multicodec
                     )
-                    return
+                    continue
                 }
                 try node.libp2p.newStream(
                     to: nodes[idx + 1].libp2p.listenAddresses.first!,
@@ -437,7 +441,7 @@ class LibP2PPubSubFloodsubTests: XCTestCase {
             ///  n
             ///
             for (idx, node) in nodes.enumerated() {
-                guard idx != 0 else { return }
+                guard idx != 0 else { continue }
                 try node.libp2p.newStream(to: nodes[0].libp2p.listenAddresses.first!, forProtocol: FloodSub.multicodec)
             }
 
@@ -452,14 +456,14 @@ class LibP2PPubSubFloodsubTests: XCTestCase {
             ///  n               n
             ///
             for (idx, node) in nodes.enumerated() {
-                guard idx != 0 else { return }
+                guard idx != 0 else { continue }
                 if idx == 1 {
                     /// Have Node1 reach out to Node0
                     try node.libp2p.newStream(
                         to: nodes[0].libp2p.listenAddresses.first!,
                         forProtocol: FloodSub.multicodec
                     )
-                    return
+                    continue
                 }
                 if idx % 2 == 0 {
                     /// If the node is an even number (have it reach out to Node0, our even beacon node)
