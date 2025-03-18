@@ -533,6 +533,11 @@ class LibP2PPubSubGossipsubTests: XCTestCase {
         nodes.first!.libp2p.peers.dumpAll()
         nodes.first!.libp2p.pubsub.gossipsub.dumpEventList()
 
+        /// Close all connections
+        for node in nodes {
+            try? node.libp2p.connections.closeAllConnections().wait()
+        }
+
         /// Stop the nodes
         for node in nodes { node.libp2p.shutdown() }
 

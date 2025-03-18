@@ -499,6 +499,11 @@ class LibP2PPubSubFloodsubTests: XCTestCase {
 
         nodes.first!.libp2p.peers.dumpAll()
 
+        /// Close all connections
+        for node in nodes {
+            try? node.libp2p.connections.closeAllConnections().wait()
+        }
+
         /// Stop the nodes
         for node in nodes { node.libp2p.shutdown() }
 
