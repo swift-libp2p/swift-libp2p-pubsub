@@ -1,9 +1,16 @@
+//===----------------------------------------------------------------------===//
 //
-//  Application+Floodsub.swift
-//  
+// This source file is part of the swift-libp2p open source project
 //
-//  Created by Brandon Toms on 4/19/22.
+// Copyright (c) 2022-2025 swift-libp2p project authors
+// Licensed under MIT
 //
+// See LICENSE for license information
+// See CONTRIBUTORS for the list of swift-libp2p project authors
+//
+// SPDX-License-Identifier: MIT
+//
+//===----------------------------------------------------------------------===//
 
 import LibP2P
 
@@ -17,11 +24,16 @@ extension Application.PubSubServices.Provider {
             }
         }
     }
-    
-    public static func floodsub(emitSelf:Bool) -> Self {
+
+    public static func floodsub(emitSelf: Bool) -> Self {
         .init {
             $0.pubsub.use { app -> FloodSub in
-                let fsub = try! FloodSub(group: app.eventLoopGroup, libp2p: app, debugName: "Floodsub", emitSelf: emitSelf)
+                let fsub = try! FloodSub(
+                    group: app.eventLoopGroup,
+                    libp2p: app,
+                    debugName: "Floodsub",
+                    emitSelf: emitSelf
+                )
                 app.lifecycle.use(fsub)
                 return fsub
             }
@@ -30,10 +42,12 @@ extension Application.PubSubServices.Provider {
 }
 
 extension Application.PubSubServices {
-    
-    public var floodsub:FloodSub {
+
+    public var floodsub: FloodSub {
         guard let fsub = self.service(for: FloodSub.self) else {
-            fatalError("Floodsub accessed without instantiating it first. Use app.pubsub.use(.floodsub) to initialize a shared Floodsub instance.")
+            fatalError(
+                "Floodsub accessed without instantiating it first. Use app.pubsub.use(.floodsub) to initialize a shared Floodsub instance."
+            )
         }
         return fsub
     }

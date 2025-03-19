@@ -1,3 +1,17 @@
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the swift-libp2p open source project
+//
+// Copyright (c) 2022-2025 swift-libp2p project authors
+// Licensed under MIT
+//
+// See LICENSE for license information
+// See CONTRIBUTORS for the list of swift-libp2p project authors
+//
+// SPDX-License-Identifier: MIT
+//
+//===----------------------------------------------------------------------===//
+
 syntax = "proto2";
 
 package pubsub.pb;
@@ -32,18 +46,18 @@ message ControlMessage {
 
 message ControlIHave {
     optional string topicID = 1;
-    // implementors from other languages should use bytes here - go protobuf emits invalid utf8 strings
+    // implementors from other languages should use bytes here - go protobuf
+    // emits invalid utf8 strings
     repeated string messageIDs = 2;
 }
 
 message ControlIWant {
-    // implementors from other languages should use bytes here - go protobuf emits invalid utf8 strings
+    // implementors from other languages should use bytes here - go protobuf
+    // emits invalid utf8 strings
     repeated string messageIDs = 1;
 }
 
-message ControlGraft {
-    optional string topicID = 1;
-}
+message ControlGraft { optional string topicID = 1; }
 
 message ControlPrune {
     optional string topicID = 1;
