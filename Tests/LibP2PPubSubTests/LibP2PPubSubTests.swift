@@ -32,17 +32,17 @@ struct LibP2PPubSubTests {
         app.muxers.use(.mplex)
         app.pubsub.use(.floodsub)
 
-        #expect(app.pubsub.available.map({$0.description}) == ["/floodsub/1.0.0"])
+        #expect(app.pubsub.available.map({ $0.description }) == ["/floodsub/1.0.0"])
         #expect(app.pubsub.service(for: FloodSub.self) != nil)
         #expect(app.pubsub.service(forKey: FloodSub.multicodec) != nil)
-        
+
         try await app.startup()
 
         try await Task.sleep(for: .milliseconds(10))
 
         try await app.asyncShutdown()
     }
-    
+
     @Test func testAppConfiguration_Gossipsub() async throws {
         let app = try Application(.testing, peerID: PeerID(.Ed25519))
         app.logger.logLevel = .trace
@@ -53,10 +53,10 @@ struct LibP2PPubSubTests {
         app.muxers.use(.mplex)
         app.pubsub.use(.gossipsub)
 
-        #expect(app.pubsub.available.map({$0.description}) == ["/meshsub/1.0.0"])
+        #expect(app.pubsub.available.map({ $0.description }) == ["/meshsub/1.0.0"])
         #expect(app.pubsub.service(for: GossipSub.self) != nil)
         #expect(app.pubsub.service(forKey: GossipSub.multicodec) != nil)
-        
+
         try await app.startup()
 
         try await Task.sleep(for: .milliseconds(10))
