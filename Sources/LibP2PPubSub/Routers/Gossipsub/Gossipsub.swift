@@ -14,6 +14,7 @@
 
 import LibP2P
 import LibP2PCore
+import NIOConcurrencyHelpers
 
 /// GossipSub Implementation
 ///
@@ -27,8 +28,8 @@ import LibP2PCore
 ///
 /// - Note: [Gossipsub v1.0.0 Spec](https://github.com/libp2p/specs/blob/master/pubsub/gossipsub/gossipsub-v1.0.md)
 /// - Note: The methods that we must implement will be enforced by the compiler when we conform to PubSub
-public class GossipSub: BasePubSub, PubSubCore, LifecycleHandler {
-    public static var multicodec: String = "/meshsub/1.0.0"
+public class GossipSub: BasePubSub, PubSubCore, LifecycleHandler, @unchecked Sendable {
+    public static let multicodec: String = "/meshsub/1.0.0"
 
     public let lowerOutboundDegree = 4
     public let targetOutboundDegree = 6
@@ -203,7 +204,7 @@ public class GossipSub: BasePubSub, PubSubCore, LifecycleHandler {
                 guard let ps = self.peerState as? PeeringState else {
                     return self.eventLoop.makeFailedFuture(Errors.invalidPeerStateConformance)
                 }
-                var messagesSent: Int = 0
+                let messagesSent: NIOLockedValueBox<Int> = .init(0)
                 /// For peer in metaPeer
                 return metaPeers.compactMap { peer -> EventLoopFuture<Void> in
                     /// Grab the subscription information for this peer id
@@ -227,18 +228,18 @@ public class GossipSub: BasePubSub, PubSubCore, LifecycleHandler {
                         guard var payload = try? rpc.serializedData() else { return }
                         payload = putUVarInt(UInt64(payload.count)) + payload
 
-                        try? subscriber.write(payload.bytes)
+                        try? subscriber.write(payload.byteArray)
                         self._eventHandler?(
                             .outbound(.iHave(subscriber.id, rpc.control.ihave.compactMap { try? $0.serializedData() }))
                         )
 
-                        messagesSent += 1
+                        messagesSent.withLockedValue { $0 += 1 }
 
                         return
                     }
 
                 }.flatten(on: self.eventLoop).map {
-                    if messagesSent > 0 {
+                    if messagesSent.withLockedValue({$0}) > 0 {
                         self.logger.debug("Sent iHave Control messages to \(messagesSent) meta peers")
                     }
                 }
@@ -523,7 +524,7 @@ public class GossipSub: BasePubSub, PubSubCore, LifecycleHandler {
                 return subscribers.compactMap { peerStreams -> EventLoopFuture<Void> in
                     guard peerStreams.id != from else { return self.eventLoop.makeSucceededVoidFuture() }
                     self.logger.debug("Forwarding message to mesh subscriber \(peerStreams.id)")
-                    try? peerStreams.write(payload.bytes)
+                    try? peerStreams.write(payload.byteArray)
                     return self.eventLoop.makeSucceededVoidFuture()
                 }.flatten(on: self.eventLoop)
             }
@@ -760,7 +761,7 @@ extension GossipSub {
 
             /// Respond to the remote peer
             self.logger.debug("Responding to Control Message")
-            let _ = stream.write(payload.bytes)
+            let _ = stream.write(payload.byteArray)
 
         } else {
             self.logger.trace("No Control Response Necessary")
@@ -790,7 +791,7 @@ extension GossipSub {
         self.logger.trace("Prune Raw Message: \(prunePayload.asString(base: .base16))")
 
         /// Send it
-        try? peer.write(prunePayload.bytes)
+        try? peer.write(prunePayload.byteArray)
         self._eventHandler?(.outbound(.prune(peer.id, topic)))
 
         /// Complete the future...
@@ -848,7 +849,7 @@ extension GossipSub {
         self.logger.trace("Graft Raw Message: \(graftPayload.asString(base: .base16))")
 
         /// Send it
-        try? peer.write(graftPayload.bytes)
+        try? peer.write(graftPayload.byteArray)
         self._eventHandler?(.outbound(.graft(peer.id, topic)))
         if let ids = withRecentIHaves {
             self._eventHandler?(.outbound(.iHave(peer.id, ids)))
@@ -919,7 +920,7 @@ extension GossipSub {
             //return stream.write(wantPayload)
 
             /// Send it
-            try? stream.write(wantPayload.bytes)
+            try? stream.write(wantPayload.byteArray)
             self._eventHandler?(.outbound(.iWant(peer, ids)))
             /// Complete the future...
             return self.eventLoop.makeSucceededVoidFuture()
@@ -952,7 +953,7 @@ extension GossipSub {
             //}.flatten(on: self.mainLoop)
 
             for peer in subscribers {
-                try? peer.write(havePayload.bytes)
+                try? peer.write(havePayload.byteArray)
                 self._eventHandler?(.outbound(.iHave(peer.id, ids.compactMap { $0.data(using: .utf8) })))
             }
 

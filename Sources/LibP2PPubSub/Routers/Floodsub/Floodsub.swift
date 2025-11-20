@@ -24,8 +24,8 @@ import LibP2P
 /// - publish(msg:)
 /// - Local PeerID
 /// - nextMessageSequenceNumber
-public class FloodSub: BasePubSub, PubSubCore, LifecycleHandler {
-    public static var multicodec: String = "/floodsub/1.0.0"
+public final class FloodSub: BasePubSub, PubSubCore, LifecycleHandler, @unchecked Sendable {
+    public static let multicodec: String = "/floodsub/1.0.0"
 
     public init(
         group: EventLoopGroup,
@@ -83,7 +83,7 @@ public class FloodSub: BasePubSub, PubSubCore, LifecycleHandler {
 
     /// We have to override / implement this method so our BasePubSub implementation isn't constrained to a particular RPC PubSub Message Type
     override func decodeRPC(_ data: Data) throws -> RPCMessageCore {
-        try RPC(contiguousBytes: data)
+        try RPC(serializedBytes: data)
     }
 
     /// We have to override / implement this method so our BasePubSub implementation isn't constrained to a particular RPC PubSub Message Type
@@ -107,7 +107,7 @@ public class FloodSub: BasePubSub, PubSubCore, LifecycleHandler {
 
         var msg = RPC.Message()
         msg.data = data
-        msg.from = Data(self.peerID.bytes)
+        msg.from = Data(self.peerID.id)
         msg.seqno = Data(self.nextMessageSequenceNumber())
         msg.topicIds = [topic]
 
