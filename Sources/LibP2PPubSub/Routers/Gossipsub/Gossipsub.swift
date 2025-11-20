@@ -239,7 +239,7 @@ public class GossipSub: BasePubSub, PubSubCore, LifecycleHandler, @unchecked Sen
                     }
 
                 }.flatten(on: self.eventLoop).map {
-                    if messagesSent.withLockedValue({$0}) > 0 {
+                    if messagesSent.withLockedValue({ $0 }) > 0 {
                         self.logger.debug("Sent iHave Control messages to \(messagesSent) meta peers")
                     }
                 }

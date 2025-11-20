@@ -104,7 +104,10 @@ final class LibP2PPubSubFloodsubTests {
         try await Task.sleep(for: .seconds(1))
 
         /// Have node1 reach out to node2
-        try node1.newStream(to: node2.listenAddresses.first!.encapsulate(proto: .p2p, address: node2.peerID.b58String), forProtocol: "/floodsub/1.0.0")
+        try node1.newStream(
+            to: node2.listenAddresses.first!.encapsulate(proto: .p2p, address: node2.peerID.b58String),
+            forProtocol: "/floodsub/1.0.0"
+        )
 
         /// Publish some messages...
         node1.eventLoopGroup.next().scheduleTask(in: .seconds(1)) {
@@ -121,9 +124,10 @@ final class LibP2PPubSubFloodsubTests {
         await expectationNode1ReceivedNode2Message.wait()
         await expectationNode2ReceivedNode1Subscription.wait()
         await expectationNode2ReceivedNode1Message.wait()
-        
+
         /// Check to see if we can poll our PeerStore for known peers that support '/floodsub/1.0.0'
-        let peers = try await node1.peers.getPeers(supportingProtocol: SemVerProtocol("/floodsub/1.0.0")!, on: nil).get()
+        let peers = try await node1.peers.getPeers(supportingProtocol: SemVerProtocol("/floodsub/1.0.0")!, on: nil)
+            .get()
         #expect(peers.count == 1)
         #expect(peers.first == node2.peerID.b58String)
 
@@ -234,7 +238,7 @@ final class LibP2PPubSubFloodsubTests {
         /// Have node2 reach out to node1
         //try node2.newStream(to: node1.peerInfo, forProtocol: FloodSub.multicodec)
         try node1.newStream(to: node2.peerInfo, forProtocol: FloodSub.multicodec)
-        
+
         /// Publish some messages...
         let repeatedTask = node1.eventLoopGroup.next().scheduleRepeatedTask(
             initialDelay: .milliseconds(50),
@@ -271,7 +275,8 @@ final class LibP2PPubSubFloodsubTests {
         sleep(1)
 
         /// Check to see if we can poll our PeerStore for known peers that support '/chat/1.0.0'
-        let peers = try await node1.peers.getPeers(supportingProtocol: SemVerProtocol(FloodSub.multicodec)!, on: nil).get()
+        let peers = try await node1.peers.getPeers(supportingProtocol: SemVerProtocol(FloodSub.multicodec)!, on: nil)
+            .get()
         #expect(peers.count == 1)
         #expect(peers.first == node2.peerID.b58String)
 
@@ -293,7 +298,7 @@ final class LibP2PPubSubFloodsubTests {
         case beacon
         case beacon2beacon
     }
-    
+
     /// **************************************
     ///  Testing FloodSub Message Propogation
     /// **************************************
@@ -307,7 +312,7 @@ final class LibP2PPubSubFloodsubTests {
     /// - Note: NEW 10 Interconnected Nodes results in about 28mb of ram (both Plaintext and Noise), 20 Nodes -> 46.4mb, 50 Nodes -> 100mb
     @Test(arguments: NetworkStructure.allCases)
     func testLibP2PPubSub_FloodSub_NNodes(_ structureToTest: NetworkStructure) async throws {
-        
+
         class Node {
             let libp2p: Application
             let expectation: AsyncSemaphore
@@ -329,7 +334,10 @@ final class LibP2PPubSubFloodsubTests {
         /// Consider the ConenctionManagers max concurrent connections param while setting this number (especially for the beacon structure) (the default is 25 connections)
         let nodesToTest: Int = 25
 
-        guard nodesToTest > 2 else { Issue.record("We need at least 3 nodes to accurately perform this test..."); return }
+        guard nodesToTest > 2 else {
+            Issue.record("We need at least 3 nodes to accurately perform this test...")
+            return
+        }
 
         /// Init the libp2p nodes, floodsub routers, and prepare our expectations
         var nodes: [Node] = try (0..<nodesToTest).map { idx in
@@ -600,20 +608,20 @@ final class LibP2PPubSubFloodsubTests {
         app.muxers.use(.mplex)
 
         try await app.startup()
-        
+
         // No MPLEX Support
         let peerToDial = try Multiaddr("/ip4/139.178.91.71/tcp/4001/p2p/QmNnooDu7bfjPFoTZYxMNLWUQJyrVwtbZg5gBMjTezGAJN")
-        
+
         let latency = try await app.identify.ping(addr: peerToDial)
         print("Latency: \(latency)")
-        
+
         try await Task.sleep(for: .seconds(5))
 
         app.peers.dumpAll()
 
         try await app.asyncShutdown()
     }
-    
+
     @Test(.externalIntegrationTestsEnabled, .timeLimit(.minutes(1)))
     func testExternalFloodsubConnections() async throws {
         let app = try Application(.testing, peerID: PeerID(.Ed25519))
@@ -663,16 +671,18 @@ final class LibP2PPubSubFloodsubTests {
         }
 
         // These are all outdated
-        let peerToDial = try Multiaddr("/ip4/20.80.20.28/tcp/4001/p2p/12D3KooWH2jndcSD6MC7cvs5zJNfMgHJFBc8zpebNS3L2HGXvQnS")
+        let peerToDial = try Multiaddr(
+            "/ip4/20.80.20.28/tcp/4001/p2p/12D3KooWH2jndcSD6MC7cvs5zJNfMgHJFBc8zpebNS3L2HGXvQnS"
+        )
         //let peerToDial = try Multiaddr("/ip4/23.239.22.148/tcp/4001/p2p/12D3KooWBidnLf4iRGgZpeFVCqQjNzAsSx2opZPbG8o9tpCf2rG5")
         //let peerToDial = try Multiaddr("/ip4/139.178.88.229/tcp/4001/p2p/12D3KooWK3rWCYssQkQHHm5q1K1qHUBRgmEp18sHDnxRRtL5kPsb")
-        
+
         let latency = try await app.identify.ping(addr: peerToDial)
         print("Latency: \(latency)")
-        
+
         //await messageExpectation.wait()
         try await Task.sleep(for: .seconds(10))
-        
+
         let _ = app.pubsub.publish("Goodbyte from swift!".data(using: .utf8)!.byteArray, toTopic: topic)
 
         subscription.unsubscribe()
@@ -682,7 +692,7 @@ final class LibP2PPubSubFloodsubTests {
 
         try await app.asyncShutdown()
     }
-    
+
     var nextPort: Int = 10200
     private func makeHost() throws -> Application {
         let lib = try Application(.testing, peerID: PeerID(.Ed25519))

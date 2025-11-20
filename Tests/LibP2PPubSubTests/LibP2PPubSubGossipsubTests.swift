@@ -300,7 +300,8 @@ final class LibP2PPubSubGossipsubTests {
         try await Task.sleep(for: .seconds(1))
 
         /// Check to see if we can poll our PeerStore for known peers that support '/chat/1.0.0'
-        let peers = try await node1.peers.getPeers(supportingProtocol: SemVerProtocol(GossipSub.multicodec)!, on: nil).get()
+        let peers = try await node1.peers.getPeers(supportingProtocol: SemVerProtocol(GossipSub.multicodec)!, on: nil)
+            .get()
         #expect(peers.count == 1)
         #expect(peers.first == node2.peerID.b58String)
 
@@ -323,14 +324,13 @@ final class LibP2PPubSubGossipsubTests {
         print("All Done!")
     }
 
-    
     enum NetworkStructure: CaseIterable {
         case linear
         case circular
         case beacon
         case beacon2beacon
     }
-    
+
     /// **************************************
     ///  Testing Gossipsub Message Propogation
     /// **************************************
@@ -364,7 +364,10 @@ final class LibP2PPubSubGossipsubTests {
         /// Consider the ConenctionManagers max concurrent connections param while setting this number (especially for the beacon structure) (the default is 25 connections)
         let nodesToTest: Int = 25
 
-        guard nodesToTest > 2 else { Issue.record("We need at least 3 nodes to accurately perform this test..."); return }
+        guard nodesToTest > 2 else {
+            Issue.record("We need at least 3 nodes to accurately perform this test...")
+            return
+        }
 
         /// Init the libp2p nodes, gossipsub routers, and prepare our expectations
         var nodes: [Node] = try (0..<nodesToTest).map { idx in
