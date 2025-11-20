@@ -173,7 +173,7 @@ public class GossipSub: BasePubSub, PubSubCore, LifecycleHandler, @unchecked Sen
 
     /// We have to override / implement this method so our BasePubSub implementation isn't constrained to a particular RPC PubSub Message Type
     override func decodeRPC(_ data: Data) throws -> RPCMessageCore {
-        try RPC(contiguousBytes: data)
+        try RPC(serializedBytes: data)
     }
 
     /// We have to override / implement this method so our BasePubSub implementation isn't constrained to a particular RPC PubSub Message Type
@@ -323,7 +323,7 @@ public class GossipSub: BasePubSub, PubSubCore, LifecycleHandler, @unchecked Sen
 
         var msg = RPC.Message()
         msg.data = data
-        msg.from = Data(self.peerID.bytes)
+        msg.from = Data(self.peerID.id)
         msg.seqno = Data(self.nextMessageSequenceNumber())
         msg.topicIds = [topic]
 
