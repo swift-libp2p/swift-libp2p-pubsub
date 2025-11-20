@@ -15,11 +15,12 @@
 import LibP2P
 import LibP2PMPLEX
 import LibP2PNoise
-import XCTest
+import Testing
 
 @testable import LibP2PPubSub
 
-final class LibP2PPubSubTests: XCTestCase {
+@Suite("Libp2p PubSub Tests")
+struct LibP2PPubSubTests {
 
     func testExample() throws {
         let app = try Application(.testing, peerID: PeerID(.Ed25519))
@@ -38,4 +39,23 @@ final class LibP2PPubSubTests: XCTestCase {
         app.shutdown()
     }
 
+}
+
+struct TestHelper {
+    static var integrationTestsEnabled: Bool {
+        if let b = ProcessInfo.processInfo.environment["PerformIntegrationTests"], b == "true" {
+            return true
+        }
+        return false
+    }
+}
+
+extension Trait where Self == ConditionTrait {
+    /// This test is only available when the `PerformIntegrationTests` environment variable is set to `true`
+    public static var externalIntegrationTestsEnabled: Self {
+        enabled(
+            if: TestHelper.integrationTestsEnabled,
+            "This test is only available when the `PerformIntegrationTests` environment variable is set to `true`"
+        )
+    }
 }
