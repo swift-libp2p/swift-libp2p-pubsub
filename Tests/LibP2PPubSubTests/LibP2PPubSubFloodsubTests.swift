@@ -13,7 +13,7 @@
 //===----------------------------------------------------------------------===//
 
 import LibP2P
-import LibP2PMPLEX
+import LibP2PYAMUX
 import LibP2PNoise
 import Testing
 
@@ -545,7 +545,7 @@ final class LibP2PPubSubFloodsubTests {
         /// Configure our networking stack!
         app.servers.use(.tcp(host: "127.0.0.1", port: 10000))
         app.security.use(.noise)
-        app.muxers.use(.mplex)
+        app.muxers.use(.yamux)
         app.pubsub.use(.floodsub)
 
         let topic = "news"
@@ -605,7 +605,7 @@ final class LibP2PPubSubFloodsubTests {
         /// Configure our networking stack!
         app.servers.use(.tcp(host: "127.0.0.1", port: 10000))
         app.security.use(.noise)
-        app.muxers.use(.mplex)
+        app.muxers.use(.yamux)
 
         try await app.startup()
 
@@ -630,7 +630,7 @@ final class LibP2PPubSubFloodsubTests {
         /// Configure our networking stack!
         app.servers.use(.tcp(host: "127.0.0.1", port: 10000))
         app.security.use(.noise)
-        app.muxers.use(.mplex)
+        app.muxers.use(.yamux)
         app.pubsub.use(.floodsub)
 
         let topic = "news"
@@ -699,7 +699,7 @@ final class LibP2PPubSubFloodsubTests {
         lib.connectionManager.use(connectionType: BasicConnectionLight.self)
         lib.logger.logLevel = .info
         lib.security.use(.noise)
-        lib.muxers.use(.mplex)
+        lib.muxers.use(.yamux)
         lib.pubsub.use(.floodsub)
         lib.servers.use(.tcp(host: "127.0.0.1", port: nextPort))
 

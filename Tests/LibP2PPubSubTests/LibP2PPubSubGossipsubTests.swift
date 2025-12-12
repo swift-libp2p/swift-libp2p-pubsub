@@ -13,7 +13,7 @@
 //===----------------------------------------------------------------------===//
 
 import LibP2P
-import LibP2PMPLEX
+import LibP2PYAMUX
 import LibP2PNoise
 import Testing
 
@@ -573,7 +573,7 @@ final class LibP2PPubSubGossipsubTests {
         /// Configure our networking stack!
         app.servers.use(.tcp(host: "127.0.0.1", port: 10000))
         app.security.use(.noise)
-        app.muxers.use(.mplex)
+        app.muxers.use(.yamux)
         app.pubsub.use(.gossipsub)
 
         let topic = "news"
@@ -637,7 +637,7 @@ final class LibP2PPubSubGossipsubTests {
         lib.logger.logLevel = .info
         lib.connectionManager.use(connectionType: BasicConnectionLight.self)
         lib.security.use(.noise)
-        lib.muxers.use(.mplex)
+        lib.muxers.use(.yamux)
         lib.pubsub.use(.gossipsub)
         lib.servers.use(.tcp(host: "127.0.0.1", port: nextPort))
 

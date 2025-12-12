@@ -13,7 +13,7 @@
 //===----------------------------------------------------------------------===//
 
 import LibP2P
-import LibP2PMPLEX
+import LibP2PYAMUX
 import LibP2PNoise
 import Testing
 
@@ -29,7 +29,7 @@ struct LibP2PPubSubTests {
         /// Configure our networking stack!
         app.servers.use(.tcp(host: "127.0.0.1", port: 10000))
         app.security.use(.noise)
-        app.muxers.use(.mplex)
+        app.muxers.use(.yamux)
         app.pubsub.use(.floodsub)
 
         #expect(app.pubsub.available.map({ $0.description }) == ["/floodsub/1.0.0"])
@@ -50,7 +50,7 @@ struct LibP2PPubSubTests {
         /// Configure our networking stack!
         app.servers.use(.tcp(host: "127.0.0.1", port: 10000))
         app.security.use(.noise)
-        app.muxers.use(.mplex)
+        app.muxers.use(.yamux)
         app.pubsub.use(.gossipsub)
 
         #expect(app.pubsub.available.map({ $0.description }) == ["/meshsub/1.0.0"])
