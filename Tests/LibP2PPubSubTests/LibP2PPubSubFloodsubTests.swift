@@ -615,7 +615,7 @@ final class LibP2PPubSubFloodsubTests {
         let latency = try await app.identify.ping(addr: peerToDial)
         print("Latency: \(latency)")
 
-        try await Task.sleep(for: .seconds(5))
+        try await Task.sleep(for: .milliseconds(50))
 
         app.peers.dumpAll()
 
