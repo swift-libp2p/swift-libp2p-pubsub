@@ -67,8 +67,8 @@ struct LibP2PPubSubTests {
 }
 
 struct TestHelper {
-    static var integrationTestsEnabled: Bool {
-        if let b = ProcessInfo.processInfo.environment["PerformIntegrationTests"], b == "true" {
+    static var externalIntegrationTestsEnabled: Bool {
+        if let b = ProcessInfo.processInfo.environment["PerformExternalIntegrationTests"], b == "true" {
             return true
         }
         return false
@@ -76,11 +76,11 @@ struct TestHelper {
 }
 
 extension Trait where Self == ConditionTrait {
-    /// This test is only available when the `PerformIntegrationTests` environment variable is set to `true`
+    /// This test is only available when the `PerformExternalIntegrationTests` environment variable is set to `true`
     public static var externalIntegrationTestsEnabled: Self {
         enabled(
-            if: TestHelper.integrationTestsEnabled,
-            "This test is only available when the `PerformIntegrationTests` environment variable is set to `true`"
+            if: TestHelper.externalIntegrationTestsEnabled,
+            "This test is only available when the `PerformExternalIntegrationTests` environment variable is set to `true`"
         )
     }
 }
