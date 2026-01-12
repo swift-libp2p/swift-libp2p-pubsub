@@ -19,7 +19,7 @@ import Testing
 
 @testable import LibP2PPubSub
 
-@Suite("Libp2p PubSub Floodsub Tests", .serialized)
+@Suite("Libp2p PubSub Floodsub Tests", .timeLimit(.minutes(10)), .serialized)
 final class LibP2PPubSubFloodsubTests {
 
     /// **************************************
