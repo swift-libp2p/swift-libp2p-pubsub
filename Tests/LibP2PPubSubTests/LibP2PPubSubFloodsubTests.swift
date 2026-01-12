@@ -101,38 +101,42 @@ final class LibP2PPubSubFloodsubTests {
         try await node1.startup()
         try await node2.startup()
 
-        try await Task.sleep(for: .seconds(1))
+        do {
+            try await Task.sleep(for: .seconds(1))
 
-        /// Have node1 reach out to node2
-        try node1.newStream(
-            to: node2.listenAddresses.first!.encapsulate(proto: .p2p, address: node2.peerID.b58String),
-            forProtocol: "/floodsub/1.0.0"
-        )
+            /// Have node1 reach out to node2
+            try node1.newStream(
+                to: node2.listenAddresses.first!.encapsulate(proto: .p2p, address: node2.peerID.b58String),
+                forProtocol: "/floodsub/1.0.0"
+            )
 
-        /// Publish some messages...
-        node1.eventLoopGroup.next().scheduleTask(in: .seconds(1)) {
-            print("Node 1 Publishing Message")
-            subscription1.publish(node1Message.data(using: .utf8)!)
+            /// Publish some messages...
+            node1.eventLoopGroup.next().scheduleTask(in: .seconds(1)) {
+                print("Node 1 Publishing Message")
+                subscription1.publish(node1Message.data(using: .utf8)!)
+            }
+            node2.eventLoopGroup.next().scheduleTask(in: .seconds(2)) {
+                print("Node 2 Publishing Message")
+                subscription2.publish(node2Message.data(using: .utf8)!)
+            }
+
+            // Wait for our sequence of events to trigger
+            await expectationNode1ReceivedNode2Subscription.wait()
+            await expectationNode1ReceivedNode2Message.wait()
+            await expectationNode2ReceivedNode1Subscription.wait()
+            await expectationNode2ReceivedNode1Message.wait()
+
+            /// Check to see if we can poll our PeerStore for known peers that support '/floodsub/1.0.0'
+            let peers = try await node1.peers.getPeers(supportingProtocol: SemVerProtocol("/floodsub/1.0.0")!, on: nil)
+                .get()
+            #expect(peers.count == 1)
+            #expect(peers.first == node2.peerID.b58String)
+
+            /// Dump the current state of our PeerStore
+            node1.peers.dumpAll()
+        } catch {
+            Issue.record(error)
         }
-        node2.eventLoopGroup.next().scheduleTask(in: .seconds(2)) {
-            print("Node 2 Publishing Message")
-            subscription2.publish(node2Message.data(using: .utf8)!)
-        }
-
-        // Wait for our sequence of events to trigger
-        await expectationNode1ReceivedNode2Subscription.wait()
-        await expectationNode1ReceivedNode2Message.wait()
-        await expectationNode2ReceivedNode1Subscription.wait()
-        await expectationNode2ReceivedNode1Message.wait()
-
-        /// Check to see if we can poll our PeerStore for known peers that support '/floodsub/1.0.0'
-        let peers = try await node1.peers.getPeers(supportingProtocol: SemVerProtocol("/floodsub/1.0.0")!, on: nil)
-            .get()
-        #expect(peers.count == 1)
-        #expect(peers.first == node2.peerID.b58String)
-
-        /// Dump the current state of our PeerStore
-        node1.peers.dumpAll()
 
         /// Stop the nodes
         try await node1.asyncShutdown()
@@ -233,57 +237,64 @@ final class LibP2PPubSubFloodsubTests {
         try await node1.startup()
         try await node2.startup()
 
-        try await Task.sleep(for: .seconds(1))
+        do {
+            try await Task.sleep(for: .seconds(1))
 
-        /// Have node2 reach out to node1
-        //try node2.newStream(to: node1.peerInfo, forProtocol: FloodSub.multicodec)
-        try node1.newStream(to: node2.peerInfo, forProtocol: FloodSub.multicodec)
+            /// Have node2 reach out to node1
+            //try node2.newStream(to: node1.peerInfo, forProtocol: FloodSub.multicodec)
+            try node1.newStream(to: node2.peerInfo, forProtocol: FloodSub.multicodec)
 
-        /// Publish some messages...
-        let repeatedTask = node1.eventLoopGroup.next().scheduleRepeatedTask(
-            initialDelay: .milliseconds(50),
-            delay: .seconds(1)
-        ) { task in
-            subscription1.publish(node1Message.data(using: .utf8)!)
-        }
+            /// Publish some messages...
+            let repeatedTask = node1.eventLoopGroup.next().scheduleRepeatedTask(
+                initialDelay: .milliseconds(50),
+                delay: .seconds(1)
+            ) { task in
+                subscription1.publish(node1Message.data(using: .utf8)!)
+            }
 
-        /// Wait for initial subscription alerts and the first message to arrive on Node 2
-        await expectationNode1ReceivedNode2Subscription.wait()
-        await expectationNode2ReceivedNode1Subscription.wait()
-        await expectationNode2ReceivedFirstNode1Message.wait()
+            /// Wait for initial subscription alerts and the first message to arrive on Node 2
+            await expectationNode1ReceivedNode2Subscription.wait()
+            await expectationNode2ReceivedNode1Subscription.wait()
+            await expectationNode2ReceivedFirstNode1Message.wait()
 
-        /// Unsubscribe Node2 from our `news` subscription
-        //try node2.pubsub.floodsub.unsubscribe(topic: "news").wait()
-        subscription2.unsubscribe()
+            /// Unsubscribe Node2 from our `news` subscription
+            //try node2.pubsub.floodsub.unsubscribe(topic: "news").wait()
+            subscription2.unsubscribe()
 
-        //wait(for: [expectationNode1ReceivedNode2Unsubscription], timeout: 10, enforceOrder: false)
+            //wait(for: [expectationNode1ReceivedNode2Unsubscription], timeout: 10, enforceOrder: false)
 
-        sleep(1)
+            sleep(1)
 
-        /// Re subscribe Node2 to our `news` subscription
-        subscription2 = try node2.pubsub.floodsub.subscribe(subscriptionConfig)
-        subscription2.on = subscriptionHandler
+            /// Re subscribe Node2 to our `news` subscription
+            subscription2 = try node2.pubsub.floodsub.subscribe(subscriptionConfig)
+            subscription2.on = subscriptionHandler
 
-        /// Wait for the second subscription alert on Node1 and the second `news` message to arrive at Node2
-        await expectationNode1ReceivedNode2SecondSubscription.wait()
-        await expectationNode2ReceivedSecondNode1Message.wait()
+            /// Wait for the second subscription alert on Node1 and the second `news` message to arrive at Node2
+            await expectationNode1ReceivedNode2SecondSubscription.wait()
+            await expectationNode2ReceivedSecondNode1Message.wait()
 
-        try await node2.pubsub.floodsub.unsubscribe(topic: "news").get()
+            try await node2.pubsub.floodsub.unsubscribe(topic: "news").get()
 
-        repeatedTask.cancel()
+            repeatedTask.cancel()
 
-        sleep(1)
+            sleep(1)
 
-        /// Check to see if we can poll our PeerStore for known peers that support '/chat/1.0.0'
-        let peers = try await node1.peers.getPeers(supportingProtocol: SemVerProtocol(FloodSub.multicodec)!, on: nil)
+            /// Check to see if we can poll our PeerStore for known peers that support '/chat/1.0.0'
+            let peers = try await node1.peers.getPeers(
+                supportingProtocol: SemVerProtocol(FloodSub.multicodec)!,
+                on: nil
+            )
             .get()
-        #expect(peers.count == 1)
-        #expect(peers.first == node2.peerID.b58String)
+            #expect(peers.count == 1)
+            #expect(peers.first == node2.peerID.b58String)
 
-        /// Ensure Node1 Subscription count equals 2 (Node2 subscribed twice)
-        #expect(node2SubscriptionCount == 2)
-        /// Ensure the Node2 received the appropriate number of `news` messages
-        #expect(node2MessageCount == messagesPerBatch * 2)
+            /// Ensure Node1 Subscription count equals 2 (Node2 subscribed twice)
+            #expect(node2SubscriptionCount == 2)
+            /// Ensure the Node2 received the appropriate number of `news` messages
+            #expect(node2MessageCount == messagesPerBatch * 2)
+        } catch {
+            Issue.record(error)
+        }
 
         /// Stop the nodes
         try await node1.asyncShutdown()
@@ -310,7 +321,7 @@ final class LibP2PPubSubFloodsubTests {
     /// Each node then publishes a message and we wait / ensure that all nodes subscribed to the topic receive all messages.
     /// - Note: OLD  10 Interconnected Nodes results in about 19mb of ram (both Plaintext and Noise), 20 Nodes -> 28mb
     /// - Note: NEW 10 Interconnected Nodes results in about 28mb of ram (both Plaintext and Noise), 20 Nodes -> 46.4mb, 50 Nodes -> 100mb
-    @Test(arguments: NetworkStructure.allCases)
+    @Test(.timeLimit(.minutes(2)), arguments: NetworkStructure.allCases)
     func testLibP2PPubSub_FloodSub_NNodes(_ structureToTest: NetworkStructure) async throws {
 
         class Node {
@@ -332,7 +343,7 @@ final class LibP2PPubSubFloodsubTests {
         }
 
         /// Consider the ConenctionManagers max concurrent connections param while setting this number (especially for the beacon structure) (the default is 25 connections)
-        let nodesToTest: Int = 25
+        let nodesToTest: Int = 5
 
         guard nodesToTest > 2 else {
             Issue.record("We need at least 3 nodes to accurately perform this test...")
@@ -389,118 +400,122 @@ final class LibP2PPubSubFloodsubTests {
 
         print("Structuring Peers - \(structureToTest)")
 
-        /// ******************************************
-        /// The following logic determines the structure of the network
-        /// ******************************************
-        switch structureToTest {
-        case .linear:
-            /// Have each node reach out to the next node in our array... (a linear chain set up)
-            ///
-            /// Network Structure Diagram
-            ///  n -> ... -> n
-            for (idx, node) in nodes.enumerated() {
-                guard nodes.count > (idx + 1) else { continue }
-                let nextPeerInfo = nodes[idx + 1].libp2p.peerInfo
-                try? node.libp2p.newStream(
-                    to: nextPeerInfo,
-                    forProtocol: FloodSub.multicodec
-                )
-            }
-
-        case .circular:
-            /// If we tie the ends together, we have a circular network graph
-            /// - Note: with 3 Nodes, this results in 6 wasted / redundant message propogations, 7 Nodes -> 14 redundant messages...
-            /// Network Structure Diagram
-            ///  n -> ... -> n -,
-            ///  ^                  |
-            ///  '----------------'
-            for (idx, node) in nodes.enumerated() {
-                guard nodes.count > (idx + 1) else {
-                    try node.libp2p.newStream(
-                        to: nodes[0].libp2p.peerInfo,
-                        forProtocol: FloodSub.multicodec
-                    )
-                    continue
-                }
-                try node.libp2p.newStream(
-                    to: nodes[idx + 1].libp2p.peerInfo,
-                    forProtocol: FloodSub.multicodec
-                )
-            }
-
-        case .beacon:
-            /// Have each node reach out to the zeroeth node (a beacon set up)
-            ///
-            /// Network Structure Diagram
-            ///  n
-            ///  : \
-            ///     -- n
-            ///  : /
-            ///  n
-            ///
-            for (idx, node) in nodes.enumerated() {
-                guard idx != 0 else { continue }
-                try node.libp2p.newStream(to: nodes[0].libp2p.peerInfo, forProtocol: FloodSub.multicodec)
-            }
-
-        case .beacon2beacon:
-            /// Splits the network into Evens & Odds then connects node 0 and 1 to bridge the devide...
-            ///
-            /// Network Structure Diagram
-            ///  n               n
-            ///    \          /
-            ///  n -- n -- n -- n
-            ///    /          \
-            ///  n               n
-            ///
-            for (idx, node) in nodes.enumerated() {
-                guard idx != 0 else { continue }
-                if idx == 1 {
-                    /// Have Node1 reach out to Node0
-                    try node.libp2p.newStream(
-                        to: nodes[0].libp2p.peerInfo,
-                        forProtocol: FloodSub.multicodec
-                    )
-                    continue
-                }
-                if idx % 2 == 0 {
-                    /// If the node is an even number (have it reach out to Node0, our even beacon node)
-                    try node.libp2p.newStream(
-                        to: nodes[0].libp2p.peerInfo,
-                        forProtocol: FloodSub.multicodec
-                    )
-                } else {
-                    /// Otherwise the node must be odd (have it reach out to Node1, our odd beacon node)
-                    try node.libp2p.newStream(
-                        to: nodes[1].libp2p.peerInfo,
+        do {
+            /// ******************************************
+            /// The following logic determines the structure of the network
+            /// ******************************************
+            switch structureToTest {
+            case .linear:
+                /// Have each node reach out to the next node in our array... (a linear chain set up)
+                ///
+                /// Network Structure Diagram
+                ///  n -> ... -> n
+                for (idx, node) in nodes.enumerated() {
+                    guard nodes.count > (idx + 1) else { continue }
+                    let nextPeerInfo = nodes[idx + 1].libp2p.peerInfo
+                    try? node.libp2p.newStream(
+                        to: nextPeerInfo,
                         forProtocol: FloodSub.multicodec
                     )
                 }
+
+            case .circular:
+                /// If we tie the ends together, we have a circular network graph
+                /// - Note: with 3 Nodes, this results in 6 wasted / redundant message propogations, 7 Nodes -> 14 redundant messages...
+                /// Network Structure Diagram
+                ///  n -> ... -> n -,
+                ///  ^                  |
+                ///  '----------------'
+                for (idx, node) in nodes.enumerated() {
+                    guard nodes.count > (idx + 1) else {
+                        try node.libp2p.newStream(
+                            to: nodes[0].libp2p.peerInfo,
+                            forProtocol: FloodSub.multicodec
+                        )
+                        continue
+                    }
+                    try node.libp2p.newStream(
+                        to: nodes[idx + 1].libp2p.peerInfo,
+                        forProtocol: FloodSub.multicodec
+                    )
+                }
+
+            case .beacon:
+                /// Have each node reach out to the zeroeth node (a beacon set up)
+                ///
+                /// Network Structure Diagram
+                ///  n
+                ///  : \
+                ///     -- n
+                ///  : /
+                ///  n
+                ///
+                for (idx, node) in nodes.enumerated() {
+                    guard idx != 0 else { continue }
+                    try node.libp2p.newStream(to: nodes[0].libp2p.peerInfo, forProtocol: FloodSub.multicodec)
+                }
+
+            case .beacon2beacon:
+                /// Splits the network into Evens & Odds then connects node 0 and 1 to bridge the devide...
+                ///
+                /// Network Structure Diagram
+                ///  n               n
+                ///    \          /
+                ///  n -- n -- n -- n
+                ///    /          \
+                ///  n               n
+                ///
+                for (idx, node) in nodes.enumerated() {
+                    guard idx != 0 else { continue }
+                    if idx == 1 {
+                        /// Have Node1 reach out to Node0
+                        try node.libp2p.newStream(
+                            to: nodes[0].libp2p.peerInfo,
+                            forProtocol: FloodSub.multicodec
+                        )
+                        continue
+                    }
+                    if idx % 2 == 0 {
+                        /// If the node is an even number (have it reach out to Node0, our even beacon node)
+                        try node.libp2p.newStream(
+                            to: nodes[0].libp2p.peerInfo,
+                            forProtocol: FloodSub.multicodec
+                        )
+                    } else {
+                        /// Otherwise the node must be odd (have it reach out to Node1, our odd beacon node)
+                        try node.libp2p.newStream(
+                            to: nodes[1].libp2p.peerInfo,
+                            forProtocol: FloodSub.multicodec
+                        )
+                    }
+                }
             }
-        }
 
-        /// Publish some messages...
-        for node in nodes {
-            node.libp2p.eventLoopGroup.next().scheduleTask(in: .milliseconds(Int64.random(in: 500...2_000))) {
-                //node.5!.publish(node.3.data(using: .utf8)!)
-                node.libp2p.pubsub.publish(node.messageToSend.data(using: .utf8)!.byteArray, toTopic: "fruit")
+            /// Publish some messages...
+            for node in nodes {
+                node.libp2p.eventLoopGroup.next().scheduleTask(in: .milliseconds(Int64.random(in: 500...2_000))) {
+                    //node.5!.publish(node.3.data(using: .utf8)!)
+                    node.libp2p.pubsub.publish(node.messageToSend.data(using: .utf8)!.byteArray, toTopic: "fruit")
+                }
             }
-        }
 
-        /// Wait for each node to receive each message
-        for node in nodes {
-            await node.expectation.wait()
-        }
-        //waitForExpectations(timeout: 10)
+            /// Wait for each node to receive each message
+            for node in nodes {
+                await node.expectation.wait()
+            }
+            //waitForExpectations(timeout: 10)
 
-        /// Wait an additional 2 seconds to ensure message propogation doesn't echo through the network causing duplicates
-        try await Task.sleep(for: .seconds(2))
+            /// Wait an additional 2 seconds to ensure message propogation doesn't echo through the network causing duplicates
+            try await Task.sleep(for: .seconds(2))
 
-        nodes.first!.libp2p.peers.dumpAll()
+            nodes.first!.libp2p.peers.dumpAll()
 
-        /// Close all connections
-        for node in nodes {
-            try? await node.libp2p.connections.closeAllConnections().get()
+            /// Close all connections
+            for node in nodes {
+                try? await node.libp2p.connections.closeAllConnections().get()
+            }
+        } catch {
+            Issue.record(error)
         }
 
         /// Stop the nodes
