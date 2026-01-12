@@ -35,14 +35,14 @@ private protocol RPCValidator {
 /// PubSub seems to opperate by maintaining 2 streams between each peer (one for publishing data, and one for reading data)
 /// This is why eveyrthing works as expected when we dial floodsub/1.0.0 but fails when we try and write over the inbound stream.
 /// The JS implementation wraps the inbound and outbound stream in a [PeerStreams](https://github.com/libp2p/js-libp2p-interfaces/blob/master/packages/libp2p-pubsub/src/peer-streams.ts) object to simplify reading / writing.
-open class BasePubSub {
+open class BasePubSub: @unchecked Sendable {
     //public static var multicodec: String { "" }
 
     public typealias Topic = String
     //typealias FancyValidator = (uuid:String, exec:(Pubsub_Pb_Message) -> EventLoopFuture<Bool>)
     //typealias FancyValidatorExtended = (uuid:String, exec:(Pubsub_Pb_Message) -> EventLoopFuture<ValidationResult>)
-    typealias Validator = (PubSubMessage) -> Bool
-    typealias ValidatorExtended = (PubSubMessage) -> ValidationResult
+    typealias Validator = @Sendable (PubSubMessage) -> Bool
+    typealias ValidatorExtended = @Sendable (PubSubMessage) -> ValidationResult
 
     public enum Errors: Error {
         case debugNameMustBeSet
@@ -912,7 +912,7 @@ open class BasePubSub {
                 /// Serialize it
                 var payload = try rpc.serializedData()
                 /// prepend a varint length prefix
-                payload = Data(putUVarInt(UInt64(payload.count)) + payload.bytes)
+                payload = Data(putUVarInt(UInt64(payload.count)) + payload.byteArray)
 
                 self.logger.trace("\(payload.asString(base: .base16))")
 
@@ -927,7 +927,7 @@ open class BasePubSub {
                 for subscriber in subscribers {
                     self.logger.debug("Attempting to send message to \(subscriber.id)")
                     self._eventHandler?(.outbound(.message(subscriber.id, [msg])))
-                    try? subscriber.write(payload.bytes)
+                    try? subscriber.write(payload.byteArray)
                 }
 
                 /// This is gossipsub related... we should move this into the gsub logic

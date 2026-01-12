@@ -14,7 +14,7 @@
 
 import LibP2P
 
-class BasicPeerState: PeerStateProtocol {
+final class BasicPeerState: PeerStateProtocol, @unchecked Sendable {
 
     typealias Topic = String
     typealias PID = String

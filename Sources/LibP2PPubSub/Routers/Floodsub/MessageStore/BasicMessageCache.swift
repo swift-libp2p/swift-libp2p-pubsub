@@ -20,7 +20,7 @@ import LibP2P
 /// Creates and maintains a dictionary with messages keyed by their ID for quick access
 /// Alongside the deictionary it also keeps an ordered (newest -> oldest) list of message ids along with their arivale time for message expiration / deletion
 /// Every heartbeat we trim the message cache of all expired messages
-class BasicMessageCache: MessageStateProtocol {
+final class BasicMessageCache: MessageStateProtocol, @unchecked Sendable {
     typealias MessageID = Data
     typealias Message = (topic: String, data: PubSubMessage)
 
@@ -166,7 +166,7 @@ class BasicMessageCache: MessageStateProtocol {
 ///
 /// - Note: Used for dropping duplicate messages by the BasePubSub implementation
 /// - Note: Every heartbeat we should `trim` the cache to keep it's size under control
-class SeenCache {
+final class SeenCache: @unchecked Sendable {
     typealias MessageID = Data
     typealias Timestamp = Double
 

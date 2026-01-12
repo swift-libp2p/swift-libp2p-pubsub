@@ -31,7 +31,7 @@ import LibP2P
 ///     // will loop through peers and update the subscriptions in either fanout or mesh
 /// }
 ///
-class PeeringState: PeerStateProtocol {
+final class PeeringState: PeerStateProtocol, @unchecked Sendable {
 
     typealias Topic = String
     typealias PID = String
