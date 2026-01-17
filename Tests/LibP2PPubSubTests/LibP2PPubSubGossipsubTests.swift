@@ -583,7 +583,7 @@ final class LibP2PPubSubGossipsubTests {
     /// - Note: The JS example uses the `concatFromAndSequenceFields` messageID function
     @Test(.externalIntegrationTestsEnabled)
     func testGossipsubJSInterop() async throws {
-        let app = try Application(.testing, peerID: PeerID(.Ed25519))
+        let app = try await Application.make(.testing, peerID: PeerID(.Ed25519))
         app.logger.logLevel = .trace
 
         /// Configure our networking stack!

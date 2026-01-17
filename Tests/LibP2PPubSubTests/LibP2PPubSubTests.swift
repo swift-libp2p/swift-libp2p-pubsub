@@ -23,7 +23,7 @@ import Testing
 struct LibP2PPubSubTests {
 
     @Test func testAppConfiguration_Floodsub() async throws {
-        let app = try Application(.testing, peerID: PeerID(.Ed25519))
+        let app = try await Application.make(.testing, peerID: PeerID(.Ed25519))
         app.logger.logLevel = .trace
 
         /// Configure our networking stack!
@@ -44,7 +44,7 @@ struct LibP2PPubSubTests {
     }
 
     @Test func testAppConfiguration_Gossipsub() async throws {
-        let app = try Application(.testing, peerID: PeerID(.Ed25519))
+        let app = try await Application.make(.testing, peerID: PeerID(.Ed25519))
         app.logger.logLevel = .trace
 
         /// Configure our networking stack!
