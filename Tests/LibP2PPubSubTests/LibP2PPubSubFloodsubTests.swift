@@ -554,7 +554,7 @@ final class LibP2PPubSubFloodsubTests {
     /// ```
     @Test(.externalIntegrationTestsEnabled, .timeLimit(.minutes(1)))
     func testFloodsubJSInterop() async throws {
-        let app = try Application(.testing, peerID: PeerID(.Ed25519))
+        let app = try await Application.make(.testing, peerID: PeerID(.Ed25519))
         app.logger.logLevel = .trace
 
         /// Configure our networking stack!
@@ -614,7 +614,7 @@ final class LibP2PPubSubFloodsubTests {
 
     @Test(.externalIntegrationTestsEnabled, .timeLimit(.minutes(1)))
     func testExternalPing() async throws {
-        let app = try Application(.testing, peerID: PeerID(.Ed25519))
+        let app = try await Application.make(.testing, peerID: PeerID(.Ed25519))
         app.logger.logLevel = .trace
 
         /// Configure our networking stack!
@@ -639,7 +639,7 @@ final class LibP2PPubSubFloodsubTests {
 
     @Test(.externalIntegrationTestsEnabled, .timeLimit(.minutes(1)))
     func testExternalFloodsubConnections() async throws {
-        let app = try Application(.testing, peerID: PeerID(.Ed25519))
+        let app = try await Application.make(.testing, peerID: PeerID(.Ed25519))
         app.logger.logLevel = .trace
 
         /// Configure our networking stack!
