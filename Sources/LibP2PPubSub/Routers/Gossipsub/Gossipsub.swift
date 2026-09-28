@@ -488,9 +488,9 @@ public class GossipSub: BasePubSub, PubSubCore, LifecycleHandler, @unchecked Sen
         }
 
         /// Process Control Messages
-        return self.processControlMessages(rpc, peer: request.remotePeer!).flatMap { res -> EventLoopFuture<Void> in
+        return self.processControlMessages(rpc, peer: from).flatMap { res -> EventLoopFuture<Void> in
             /// If the inbound control messages warrent a response, we'll send an RPC message back to the remotePeer now
-            self.replyToControlIfNecessary(res, request: request)
+            self.replyToControlIfNecessary(res, peer: from, request: request)
         }
 
         //return self.processMessages(rpc, peer: from)
