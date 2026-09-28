@@ -103,7 +103,7 @@ public final class FloodSub: BasePubSub, PubSubCore, LifecycleHandler, @unchecke
 
     /// Publish arbitrary data, bundled as an RPC message under the specified topic
     override public func publish(topic: String, data: Data, on: EventLoop?) -> EventLoopFuture<Void> {
-        self.logger.info("Attempting to publish data as RPC Message")
+        self.logger.debug("Attempting to publish data as RPC Message")
 
         var msg = RPC.Message()
         msg.data = data
