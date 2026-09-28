@@ -66,6 +66,40 @@ struct LibP2PPubSubTests {
 
 }
 
+/// Thrown when an `AsyncSemaphore` isn't signaled within the allotted time
+struct SemaphoreTimeoutError: Error, CustomStringConvertible {
+    let timeout: Duration
+    let sourceLocation: SourceLocation
+
+    var description: String {
+        "Timed out after \(timeout) waiting for semaphore at \(sourceLocation.fileName):\(sourceLocation.line)"
+    }
+}
+
+extension AsyncSemaphore {
+    /// Waits for the semaphore to be signaled, throwing a `SemaphoreTimeoutError` if it isn't signaled within `timeout`.
+    ///
+    /// - Note: `AsyncSemaphore.wait()` doesn't respect task cancellation, so a test's `.timeLimit` trait can't interrupt it.
+    /// Use this method in tests so a missing signal fails fast (with the location of the offending wait) instead of hanging.
+    func wait(timeout: Duration, sourceLocation: SourceLocation = #_sourceLocation) async throws {
+        let signaled = try await withThrowingTaskGroup(of: Bool.self) { group in
+            group.addTask {
+                try await self.waitUnlessCancelled()
+                return true
+            }
+            group.addTask {
+                try await Task.sleep(for: timeout)
+                return false
+            }
+            /// Whichever child finishes first wins, the other gets cancelled
+            let first = try await group.next() ?? false
+            group.cancelAll()
+            return first
+        }
+        guard signaled else { throw SemaphoreTimeoutError(timeout: timeout, sourceLocation: sourceLocation) }
+    }
+}
+
 struct TestHelper {
     static var externalIntegrationTestsEnabled: Bool {
         if let b = ProcessInfo.processInfo.environment["PerformExternalIntegrationTests"], b == "true" {
