@@ -87,8 +87,9 @@ final class MessageCache: MessageStateProtocol, @unchecked Sendable {
     /// Adds a message to the current window and the cache
     func put(messageID: MessageID, message: Message, on loop: EventLoop? = nil) -> EventLoopFuture<Bool> {
         eventLoop.submit { () -> Bool in
-            /// blindly overwrites any existing entries with the specified messageID
-            if self.windows.isEmpty { self.windows[0] = HistoryWindow() }
+            if self.windows.isEmpty { self.windows.append(HistoryWindow()) }
+            /// Don't store messages that are already present in any of our windows
+            guard !self._exists(messageID: messageID) else { return false }
             if self.windows[0][messageID] == nil {
                 self.windows[0][messageID] = message
                 return true
@@ -101,12 +102,12 @@ final class MessageCache: MessageStateProtocol, @unchecked Sendable {
     /// Given a dictionary of messages to store, this method will attempt to add each one and return a dictionary of the added messages.
     func put(messages: [Data: PubSubMessage], on loop: EventLoop? = nil) -> EventLoopFuture<[Data: PubSubMessage]> {
         eventLoop.submit { () -> [Data: PubSubMessage] in
-            /// blindly overwrites any existing entries with the specified messageID
-            if self.windows.isEmpty { self.windows[0] = HistoryWindow() }
+            if self.windows.isEmpty { self.windows.append(HistoryWindow()) }
             var added: [Data: PubSubMessage] = [:]
             for message in messages {
                 guard let topic = message.value.topicIds.first else { continue }
-                if self.windows[0][message.key] == nil {
+                /// Don't store (or re-forward) messages that are already present in any of our windows
+                if !self._exists(messageID: message.key) {
                     self.windows[0][message.key] = (topic, message.value)
                     added[message.key] = message.value
                 }
@@ -178,19 +179,11 @@ final class MessageCache: MessageStateProtocol, @unchecked Sendable {
         }.hop(to: loop ?? eventLoop)
     }
 
-    /// BasePubSub Calls this method every X (usually 1) seconds, we take the opportunity to shift our Message Cache
-    var runningHeartbeatCounter: UInt64 = 0
+    /// BasePubSub Calls this method every heartbeat (usually 1 second), per the spec we shift our Message Cache once per heartbeat
     func heartbeat() -> EventLoopFuture<Void> {
         self.eventLoop.submit {
-            /// Every 30 seconds we shift our message store
-            if self.runningHeartbeatCounter >= 2 {
-                self.runningHeartbeatCounter = 0
-                self.logger.trace("Shifting Message Cache Window")
-                self.shift()
-            }
-
-            /// Increment our heartbeat counter...
-            self.runningHeartbeatCounter += 1
+            self.logger.trace("Shifting Message Cache Window")
+            self._shift()
         }
     }
 
@@ -199,13 +192,18 @@ final class MessageCache: MessageStateProtocol, @unchecked Sendable {
     @discardableResult
     func shift(on loop: EventLoop? = nil) -> EventLoopFuture<Void> {
         eventLoop.submit { () -> Void in
-            /// Remove all windows that are older than our cacheLength
-            while self.windows.count >= self.cacheLength {
-                self.windows.removeLast()
-            }
-            /// Insert a new window at index 0
-            self.windows.insert(HistoryWindow(), at: 0)
+            self._shift()
         }.hop(to: loop ?? eventLoop)
+    }
+
+    /// - Warning: Must be called on `self.eventLoop`
+    private func _shift() {
+        /// Remove all windows that are older than our cacheLength
+        while self.windows.count >= self.cacheLength {
+            self.windows.removeLast()
+        }
+        /// Insert a new window at index 0
+        self.windows.insert(HistoryWindow(), at: 0)
     }
 
     /// Given an array of message ids, this method will filter them using the specified filter and return the ID's that satisfy the filter...
