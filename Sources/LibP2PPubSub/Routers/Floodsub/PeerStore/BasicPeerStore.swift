@@ -275,7 +275,7 @@ final class BasicPeerState: PeerStateProtocol, @unchecked Sendable {
                 self.mesh[topic] = []
                 return []
             }
-        }
+        }.hop(to: loop ?? eventLoop)
     }
 
     /// This method updates our PeerState to reflect a subscription removal
@@ -285,12 +285,11 @@ final class BasicPeerState: PeerStateProtocol, @unchecked Sendable {
     /// Returns a list of PeerIDs that can be used to send unsub messages to
     func unsubscribeSelf(from topic: Topic, on loop: EventLoop? = nil) -> EventLoopFuture<[PID]> {
         eventLoop.submit { () -> [PID] in
-            guard self.state == .started || self.state == .stopping else { return [] }
             /// Check to see if we're aware of the topic (is it in our fanout set)
             if let knownTopic = self.mesh.removeValue(forKey: topic) {
                 self.logger.trace("Downgrading `\(topic)` subscription from mesh to fanout")
-                // Should we transfer this entry back to our fanout set?
-                self.fanout.updateValue(knownTopic, forKey: topic)
+                // Transfer the known peers back to our fanout set, so we can still publish to them
+                if !knownTopic.isEmpty { self.fanout.updateValue(knownTopic, forKey: topic) }
                 /// return the list of peers that are effected by this unsubing
                 return knownTopic
             } else {
@@ -298,7 +297,7 @@ final class BasicPeerState: PeerStateProtocol, @unchecked Sendable {
             }
 
             return []
-        }
+        }.hop(to: loop ?? eventLoop)
     }
 
     func metaPeerIDs(on loop: EventLoop? = nil) -> EventLoopFuture<[Topic: [PeerID]]> {
@@ -332,10 +331,13 @@ final class BasicPeerState: PeerStateProtocol, @unchecked Sendable {
         }.hop(to: loop ?? eventLoop)
     }
 
+    /// Floodsub floods messages to every known peer subscribed to the topic, regardless of whether we're subscribed to it ourselves.
+    /// (Peers for topics we're subscribed to live in `mesh`, while peers for topics we're not subscribed to live in `fanout`)
     func peersSubscribedTo(topic: Topic, on loop: EventLoop? = nil) -> EventLoopFuture<[PubSub.Subscriber]> {
         eventLoop.submit { () -> [PubSub.Subscriber] in
             let subbed = self.mesh[topic] ?? []
-            return subbed.compactMap {
+            let known = self.fanout[topic] ?? []
+            return (subbed + known).compactMap {
                 self.peers[$0]
             }
         }.hop(to: loop ?? eventLoop)
