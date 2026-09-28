@@ -2,7 +2,7 @@
 //
 // This source file is part of the swift-libp2p open source project
 //
-// Copyright (c) 2022-2025 swift-libp2p project authors
+// Copyright (c) 2022-2026 swift-libp2p project authors
 // Licensed under MIT
 //
 // See LICENSE for license information
@@ -25,26 +25,5 @@ extension RPC: RPCMessageCore {
 
     var messages: [PubSubMessage] {
         self.msgs.map { $0 as PubSubMessage }
-    }
-}
-
-extension RPC {
-    init(_ rpc: RPCMessageCore) throws {
-        self.msgs = rpc.messages.map {
-            var msg = RPC.Message()
-            msg.data = $0.data
-            msg.from = $0.from
-            msg.seqno = $0.seqno
-            msg.topicIds = $0.topicIds
-            msg.signature = $0.signature
-            msg.key = $0.key
-            return msg
-        }
-        self.subscriptions = rpc.subs.map {
-            var sub = RPC.SubOpts()
-            sub.subscribe = $0.subscribe
-            sub.topicID = $0.topicID
-            return sub
-        }
     }
 }
