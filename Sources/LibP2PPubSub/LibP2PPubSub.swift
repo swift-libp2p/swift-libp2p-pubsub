@@ -98,6 +98,9 @@ open class BasePubSub: @unchecked Sendable {
     internal var topicSignaturePolicy: [Topic: PubSub.SignaturePolicy] = [:]
 
     private var topology: MulticodecTopology!
+    
+    /// - Note: swift-libp2p doesn't offer a way to unregister a topology handler, so we only ever register once per instance
+    private var topologyRegistered: Bool = false
 
     internal var logger: Logger
 
@@ -206,16 +209,25 @@ open class BasePubSub: @unchecked Sendable {
         }
 
         /// Set up our Network Topology Filter for our specified multicodecs
-        /// - TODO: Have a way to unregister from the topology...
-        libp2p.topology.register(
-            TopologyRegistration(
-                protocol: multicodecs.first!.stringValue,
-                handler: TopologyHandler(
-                    onConnect: onPeerConnected,
-                    onDisconnect: onPeerDisconnected
+        /// - Note: swift-libp2p has no way to unregister a topology handler, so we register once (weakly) and
+        /// rely on our `state` guards to ignore events while stopped. This avoids duplicate handlers on restart
+        /// and prevents the topology from keeping this instance alive.
+        if !self.topologyRegistered, let codec = multicodecs.first?.stringValue {
+            self.topologyRegistered = true
+            libp2p.topology.register(
+                TopologyRegistration(
+                    protocol: codec,
+                    handler: TopologyHandler(
+                        onConnect: { [weak self] peer, connection in
+                            self?.onPeerConnected(peer: peer, connection: connection)
+                        },
+                        onDisconnect: { [weak self] peer in
+                            self?.onPeerDisconnected(peer: peer)
+                        }
+                    )
                 )
             )
-        )
+        }
 
         /// Set our state to started
         self.state = .started
