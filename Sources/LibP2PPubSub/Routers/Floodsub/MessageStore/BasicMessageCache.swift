@@ -2,7 +2,7 @@
 //
 // This source file is part of the swift-libp2p open source project
 //
-// Copyright (c) 2022-2025 swift-libp2p project authors
+// Copyright (c) 2022-2026 swift-libp2p project authors
 // Licensed under MIT
 //
 // See LICENSE for license information
@@ -45,7 +45,7 @@ final class BasicMessageCache: MessageStateProtocol, @unchecked Sendable {
         self.expirations = []
 
         self.logger = Logger(label: "com.swift.libp2p.pubsub.messagecache[\(UUID().uuidString.prefix(5))]")
-        self.logger.logLevel = .trace
+        self.logger.logLevel = .info
         //self.logger[metadataKey: "MessageCache"] = .string("\(UUID().uuidString.prefix(5))")
 
         self.logger.debug("Instantiated")
@@ -91,10 +91,12 @@ final class BasicMessageCache: MessageStateProtocol, @unchecked Sendable {
         eventLoop.submit { () -> [Data: PubSubMessage] in
             /// blindly overwrites any existing entries with the specified messageID
             var added: [Data: PubSubMessage] = [:]
+            let now = CFAbsoluteTimeGetCurrent()
             for message in messages {
-                //guard let topic = message.value.topicIds.first else { continue }
                 if self.messages[message.key] == nil {
                     self.messages[message.key] = message.value
+                    /// Record the expiration so the message is evicted by our heartbeat once the TTL elapses
+                    self.expirations.insert((message.key, now), at: 0)
                     added[message.key] = message.value
                 }
             }
@@ -105,8 +107,8 @@ final class BasicMessageCache: MessageStateProtocol, @unchecked Sendable {
     /// Retrieves a message from the cache by its ID, if it is still present.
     func get(messageID: MessageID, on loop: EventLoop? = nil) -> EventLoopFuture<Message?> {
         eventLoop.submit { () -> Message? in
-            if let msg = self.messages[messageID] {
-                return (topic: msg.topicIds.first!, data: msg)
+            if let msg = self.messages[messageID], let topic = msg.topicIds.first {
+                return (topic: topic, data: msg)
             }
             return nil
         }.hop(to: loop ?? eventLoop)
