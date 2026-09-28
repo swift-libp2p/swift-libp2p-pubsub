@@ -85,14 +85,21 @@ public class GossipSub: BasePubSub, PubSubCore, LifecycleHandler, @unchecked Sen
             emitSelf: emitSelf
         )
 
+        /// Capture the (thread safe) event list directly, so we don't create a retain cycle with `self`
+        let eventList = self.eventList
         self._eventHandler = { event in
-            self.eventList.append(event)
+            eventList.withLockedValue { list in
+                list.append(event)
+                if list.count > GossipSub.maxEventListLength {
+                    list.removeFirst(list.count - GossipSub.maxEventListLength)
+                }
+            }
         }
     }
 
     public func dumpEventList() {
         self.logger.notice("*** Event List ***")
-        for event in self.eventList {
+        for event in self.eventList.withLockedValue({ $0 }) {
             self.logger.notice("\(event.description)")
         }
         self.logger.notice("******************")
