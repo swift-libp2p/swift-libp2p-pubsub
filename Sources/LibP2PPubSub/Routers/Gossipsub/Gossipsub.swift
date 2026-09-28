@@ -764,6 +764,7 @@ extension GossipSub {
 
     private func replyToControlIfNecessary(
         _ res: (graftRejections: [RPC.ControlPrune], iWantResponses: [RPC.Message], iWant: RPC.ControlIWant?),
+        peer remotePeer: PeerID,
         request: Request
     ) -> EventLoopFuture<Void> {
         if !res.graftRejections.isEmpty || !res.iWantResponses.isEmpty || res.iWant != nil {
