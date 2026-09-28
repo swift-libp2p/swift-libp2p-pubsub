@@ -12,6 +12,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+import Crypto
 import LibP2P
 
 private protocol RPCValidator {
@@ -681,71 +682,6 @@ open class BasePubSub: @unchecked Sendable {
         }
     }
 
-    /// Processes a single PubSubMessage at a time
-    /// - Returns: The message if it's new (unseen) and valid
-    ///
-    /// Processing / Validation Includes
-    /// 1) Validating Signature Policy conformance
-    /// 2) Calculating Message ID
-    /// 3) Ensuring we haven't already seen the message
-    /// 4) Validating the Message (by running it through the appropriate installed validators)
-    /// 5) Storing the message
-    private func processPubSubMessage(_ message: PubSubMessage) -> EventLoopFuture<PubSubMessage> {
-        /// Ensure the message conforms to our MessageSignaturePolicy
-        guard passesMessageSignaturePolicy(message) else {
-            self.logger.warning("Failed signature policy, discarding message")
-            return self.eventLoop.makeFailedFuture(Errors.signaturePolicyViolation)
-        }
-
-        /// Derive the message id using the overidable messageID function
-        guard let messageIDFunc = self.messageIDFunctions[message.topicIds.first!] else {
-            self.logger.warning(
-                "No MessageIDFunction defined for topic '\(message.topicIds.first!)'. Dropping Message."
-            )
-            return self.eventLoop.makeFailedFuture(Errors.noIDFunctionForTopic)
-        }
-
-        /// Get the messages ID
-        let id = messageIDFunc(message)
-
-        self.logger.trace("Message ID `\(id.asString(base: .base16))`")
-        self.logger.trace("\(message.description)")
-
-        /// Check to ensure we haven't seen this message already...
-        return self.messageCache.exists(messageID: id, on: nil).flatMap { exists -> EventLoopFuture<PubSubMessage> in
-            guard exists == false else {
-                self.logger.trace("Dropping Duplicate Message")
-                return self.eventLoop.makeFailedFuture(Errors.duplicateMessage)
-            }
-
-            /// Validate the unseen message before storing it in our message cache...
-            return self.validate(message: message).flatMap { valid -> EventLoopFuture<PubSubMessage> in
-                guard valid else {
-                    self.logger.warning("Dropping Invalid Message: \(message)")
-                    return self.eventLoop.makeFailedFuture(Errors.failedMessageValidation)
-                }
-
-                /// Store the message in our message cache
-                self.logger.trace("Storing Message: \(id.asString(base: .base16))")
-                /// - Note: We can run into issues where we end up saving duplicate messages cause when we check for existance they haven't been saved yet, and by the time we get around to saving them, theirs multiple copies ready to be stored.
-                /// We temporarily added the `valid` flag to the `put` method to double check existance of a message before forwarding it and alerting our handler.
-                return self.messageCache.put(
-                    messageID: id,
-                    message: (topic: message.topicIds.first!, data: message),
-                    on: nil
-                ).flatMap { valid -> EventLoopFuture<PubSubMessage> in
-                    guard valid else {
-                        self.logger.warning("Encountered Duplicate Message While Attempting To Store In Message Cache")
-                        return self.eventLoop.makeFailedFuture(Errors.duplicateMessage)
-                    }
-
-                    /// Pass each message onto our specific implementations
-                    return self.eventLoop.makeSucceededFuture(message)
-                }
-            }
-        }
-    }
-
     /// Processes a batch of PubSubMessage, in an attempt to reduce eventLoop hops...
     /// - Returns: All of the new (unseen) valid messages
     ///
@@ -956,25 +892,12 @@ open class BasePubSub: @unchecked Sendable {
                 )
             }
 
-            var msgToSend = RPC.Message()
+            /// Use the topic's policy if we're subscribed, otherwise fall back to our global policy
+            let policy = self.signaturePolicy(for: topic)
 
-            /// Sign the message if necessary...
             do {
-                if let policy = self.topicSignaturePolicy[topic] {
-                    switch policy {
-                    case .strictSign:
-                        self.logger.trace("Attempting to sign message")
-                        let bytes = try BasePubSub.MessagePrefix + msg.serializedData()
-                        msgToSend = msg
-                        msgToSend.signature = try self.peerID.signature(for: bytes)
-                        // pubkey.data and marshalPublicKey have an extra 0801 prepended
-                        msgToSend.key = try Data(self.peerID.marshalPublicKey())
-                        self.logger.trace("Signed Message: \(msgToSend)")
-                    case .strictNoSign:
-                        // Nothing to do...
-                        msgToSend = msg
-                    }
-                }
+                /// Sign (or strip) the message according to our policy
+                let msgToSend = try self.prepareOutboundMessage(msg, policy: policy)
 
                 /// Construct the RPC message
                 var rpc = RPC()
@@ -986,17 +909,15 @@ open class BasePubSub: @unchecked Sendable {
 
                 self.logger.trace("\(payload.asString(base: .base16))")
 
-                /// Store the message in our message cache...
-                if let msgID = self.messageIDFunctions[topic]?(msgToSend) {
-                    let _ = self.messageCache.put(messageID: msgID, message: (topic, msgToSend), on: nil)
-                    /// Do we also add it to our seenCache??
-                    self.seenCache.put(messageID: msgID)
-                }
+                /// Store the message in our message cache (so we can respond to IWANTs) and our seen cache (so we drop it if it's echoed back to us)
+                let msgID = self.messageIDFunction(for: topic, policy: policy)(msgToSend)
+                let _ = self.messageCache.put(messageID: msgID, message: (topic, msgToSend), on: nil)
+                self.seenCache.put(messageID: msgID)
 
                 /// For each peer subscribed to the topic, send the message their way...
                 for subscriber in subscribers {
                     self.logger.debug("Attempting to send message to \(subscriber.id)")
-                    self._eventHandler?(.outbound(.message(subscriber.id, [msg])))
+                    self._eventHandler?(.outbound(.message(subscriber.id, [msgToSend])))
                     try? subscriber.write(payload.byteArray)
                 }
 
@@ -1071,7 +992,7 @@ open class BasePubSub: @unchecked Sendable {
 
             /// Assign our MessageID function for the specified topic (different topics can use differnt message ID functions)
             self.logger.trace("Using the \(config.messageIDFunc) as our MessageID function for topic:'\(config.topic)'")
-            self.assignMessageIDFunction(for: config.topic, config.messageIDFunc.messageIDFunction)
+            self.assignMessageIDFunction(for: config.topic, self.resolveMessageIDFunction(for: config))
 
             /// Let our peerstate know of our subscriptions (for mesh / fanout distinction)
             let _ = self.peerState.subscribeSelf(to: config.topic, on: nil)
@@ -1155,6 +1076,7 @@ open class BasePubSub: @unchecked Sendable {
 
                 return self.eventLoop.flatSubmit {
                     self.validators.removeValue(forKey: topic)
+                    self.validatorsExt.removeValue(forKey: topic)
                     self.messageIDFunctions.removeValue(forKey: topic)
                     self.topicSignaturePolicy.removeValue(forKey: topic)
                     self.subscriptions.removeValue(forKey: topic)
