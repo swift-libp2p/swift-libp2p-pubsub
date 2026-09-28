@@ -271,6 +271,9 @@ final class PeeringState: PeerStateProtocol, @unchecked Sendable {
             let pid = peer.b58String
             for (topic, subscribed) in subscriptions {
                 if subscribed == true {
+                    /// If the peer is already in our mesh for this topic (ex: a duplicate subscription announcement) there's nothing to do.
+                    /// Otherwise they'd end up in both our mesh and fanout, and receive IHAVE gossip for a topic they're already a full peer on.
+                    if self.mesh[topic]?.contains(pid) == true { continue }
                     // add the (topic:peer) entry to our fanout cache
                     if var subs = self.fanout[topic] {
                         /// Add the peer to the existing topic entry...
@@ -342,14 +345,13 @@ final class PeeringState: PeerStateProtocol, @unchecked Sendable {
     /// Returns a list of PeerIDs that can be used to send unsub messages to
     func unsubscribeSelf(from topic: Topic, on loop: EventLoop? = nil) -> EventLoopFuture<[PID]> {
         eventLoop.submit { () -> [PID] in
-            guard self.state == .started || self.state == .stopping else { return [] }
             /// Check to see if we're aware of the topic (is it in our fanout set)
             if let knownTopic = self.mesh.removeValue(forKey: topic) {
                 self.logger.trace("Downgrading `\(topic)` subscription from mesh to fanout")
                 // Should we transfer this entry back to our fanout set?
                 if let existingFanout = self.fanout[topic] {
                     self.fanout[topic] = Array(Set(existingFanout + knownTopic))
-                } else {
+                } else if !knownTopic.isEmpty {
                     self.fanout.updateValue(knownTopic, forKey: topic)
                 }
                 /// return the list of peers that are effected by this unsubing
@@ -359,7 +361,7 @@ final class PeeringState: PeerStateProtocol, @unchecked Sendable {
             }
 
             return []
-        }
+        }.hop(to: loop ?? eventLoop)
     }
 
     //    public enum SubscriptionType {
@@ -378,11 +380,25 @@ final class PeeringState: PeerStateProtocol, @unchecked Sendable {
         }.hop(to: loop ?? eventLoop)
     }
 
+    /// Returns the peers we should send messages for the specified topic to
+    /// - If we're subscribed to the topic, this returns our mesh peers
+    /// - If we're not subscribed to the topic, this returns every known peer subscribed to the topic (akin to v1.1's flood publishing)
+    /// - If we're subscribed but our mesh doesn't contain any connected peers yet (ex: we published before our first heartbeat grafted any peers),
+    ///   this also falls back to every known peer subscribed to the topic, rather than silently dropping the message.
     func peersSubscribedTo(topic: String, on loop: EventLoop?) -> EventLoopFuture<[PubSub.Subscriber]> {
         eventLoop.submit { () -> [PubSub.Subscriber] in
-            let subbed = self.mesh[topic] ?? []
-            //let known = self.fanout[topic] ?? []
-            return self.idsToSubs(subbed)  // known
+            if let subbed = self.mesh[topic] {
+                let meshPeers = self.idsToSubs(subbed)
+                if !meshPeers.isEmpty { return meshPeers }
+            }
+            return self.idsToSubs(self.fanout[topic] ?? [])
+        }.hop(to: loop ?? eventLoop)
+    }
+
+    /// Returns the number of connected peers in our mesh for each topic we're subscribed to
+    func meshDegrees(on loop: EventLoop? = nil) -> EventLoopFuture<[Topic: Int]> {
+        eventLoop.submit { () -> [Topic: Int] in
+            self.mesh.mapValues { pids in pids.filter { self.peers[$0] != nil }.count }
         }.hop(to: loop ?? eventLoop)
     }
 
