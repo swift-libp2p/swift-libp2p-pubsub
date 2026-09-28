@@ -269,7 +269,10 @@ public class GossipSub: BasePubSub, PubSubCore, LifecycleHandler, @unchecked Sen
         return self.eventLoop.flatSubmit({  //-> [String:[RPC.ControlIHave]] in
             var iHaves: [RPC.ControlIHave] = []
             return self.subscriptions.keys.compactMap { topic in
-                mc.getGossipIDs(topic: topic).map { messageIDs in
+                /// Hop back to our eventloop so `iHaves` is only ever mutated on a single thread
+                mc.getGossipIDs(topic: topic, on: self.eventLoop).map { messageIDs in
+                    /// Don't gossip empty IHAVEs
+                    guard !messageIDs.isEmpty else { return }
                     iHaves.append(
                         RPC.ControlIHave.with({ iHave in
                             iHave.topicID = topic
