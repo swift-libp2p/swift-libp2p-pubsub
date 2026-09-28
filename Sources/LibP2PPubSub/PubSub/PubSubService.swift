@@ -1,0 +1,236 @@
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the swift-libp2p open source project
+//
+// Copyright (c) 2022-2026 swift-libp2p project authors
+// Licensed under MIT
+//
+// See LICENSE for license information
+// See CONTRIBUTORS for the list of swift-libp2p project authors
+//
+// SPDX-License-Identifier: MIT
+//
+//===----------------------------------------------------------------------===//
+
+import LibP2P
+import NIOConcurrencyHelpers
+
+/// The functionality shared by ``FloodSub`` and ``GossipSub``.
+///
+/// The primary API is `async`:
+/// ```swift
+/// let subscription = try await app.pubsub.gossipsub.subscribe(TopicConfiguration(topic: "fruit"))
+/// try await app.pubsub.gossipsub.publish(Data("banana".utf8), to: "fruit")
+/// for await message in subscription.messages { ... }
+/// ```
+///
+/// The `EventLoopFuture` and `SubscriptionHandler` based API required by swift-libp2p-core's `PubSubCore` is also supported,
+/// so routers keep working with `app.pubsub`.
+///
+/// - Note: Every operation is applied in the order it was issued, even when issued from synchronous code
+///   (ex: a `SubscriptionHandler` returned by `subscribe(_:)` followed by `unsubscribe(topic:on:)`).
+public class PubSubService: @unchecked Sendable {
+    /// The event loop our `EventLoopFuture`s are completed on (unless another is requested)
+    public let eventLoop: EventLoop
+
+    public var state: ServiceLifecycleState {
+        self.lifecycleState.withLockedValue { $0 }
+    }
+
+    let engine: PubSubEngine
+
+    private let lifecycleState: NIOLockedValueBox<ServiceLifecycleState>
+
+    /// The most recently issued engine operation, each new operation waits for it to complete
+    private let lastOperation: NIOLockedValueBox<Task<Void, Never>?>
+
+    /// Registers a router's protocol route, ex: `app.group("floodsub") { $0.on("1.0.0", handlers: handlers, use: handler) }`
+    typealias RouteRegistration = (
+        _ application: Application,
+        _ handlers: [Application.ChildChannelHandlers.Provider],
+        _ handler: @escaping @Sendable (LibP2PStream) async throws -> Void
+    ) -> Void
+
+    init(
+        application: Application,
+        protocolID: String,
+        name: String,
+        configuration: PubSubConfiguration,
+        router: any PubSubRouter,
+        registerRoute: RouteRegistration
+    ) {
+        var logger = Logger(label: "\(name)[\(application.peerID.shortDescription)]")
+        logger.logLevel = application.logger.logLevel
+
+        let engine = PubSubEngine(
+            protocolID: protocolID,
+            localPeer: application.peerID,
+            configuration: configuration,
+            router: router,
+            logger: logger
+        )
+        self.engine = engine
+        self.eventLoop = application.eventLoopGroup.next()
+        self.lifecycleState = .init(.stopped)
+        self.lastOperation = .init(nil)
+
+        /// Our streams are driven by the engine, framed with unsigned varint length prefixes
+        registerRoute(application, [.varIntFramed(maxMessageLength: configuration.maxMessageSize)]) {
+            [weak engine] stream in
+            await engine?.run(stream)
+        }
+
+        /// Learn about peers that support our protocol as they connect and disconnect.
+        ///
+        /// - Note: swift-libp2p has no way to unregister a topology handler, so we register once, weakly, and the engine
+        /// ignores events while it's stopped.
+        application.topology.register(
+            TopologyRegistration(
+                protocol: protocolID,
+                handler: TopologyHandler(
+                    onConnect: { [weak engine] peer, connection in
+                        Task { await engine?.peerConnected(peer, connection: connection) }
+                    },
+                    onDisconnect: { [weak engine] peer in
+                        Task { await engine?.peerDisconnected(peer) }
+                    }
+                )
+            )
+        )
+    }
+
+    // MARK: - Async API
+
+    /// Subscribes to a topic, returning a ``PubSubSubscription`` that delivers the topic's events
+    public func subscribe(_ configuration: TopicConfiguration) async throws -> PubSubSubscription {
+        try await self.schedule { try await $0.subscribe(configuration) }.value
+    }
+
+    /// Unsubscribes from a topic entirely, ending all of its subscriptions
+    public func unsubscribe(from topic: String) async {
+        _ = await self.schedule { await $0.unsubscribe(from: topic) }.result
+    }
+
+    /// Publishes `data` to `topic`. We needn't be subscribed to the topic.
+    public func publish(_ data: Data, to topic: String) async throws {
+        try await self.schedule { try await $0.publish(data, to: topic) }.value
+    }
+
+    /// The topics we're subscribed to
+    public func subscribedTopics() async -> [String] {
+        (try? await self.schedule { await $0.subscribedTopics() }.value) ?? []
+    }
+
+    /// The peers we know to be subscribed to `topic`
+    public func peers(subscribedTo topic: String) async -> [PeerID] {
+        (try? await self.schedule { await $0.peers(subscribedTo: topic) }.value) ?? []
+    }
+
+    // MARK: - PubSubCore
+
+    public func start() throws {
+        self.lifecycleState.withLockedValue { $0 = .started }
+        self.schedule { await $0.start() }
+    }
+
+    public func stop() throws {
+        self.lifecycleState.withLockedValue { $0 = .stopped }
+        self.schedule { await $0.stop() }
+    }
+
+    public func subscribe(_ config: PubSub.SubscriptionConfig, on loop: EventLoop? = nil) -> EventLoopFuture<Void> {
+        let configuration = TopicConfiguration(config)
+        return self.future(on: loop) { try await $0.join(configuration) }
+    }
+
+    /// Subscribes to a topic, delivering its events to the returned handler's `on` callback.
+    ///
+    /// - Note: Assign the handler's `on` callback promptly, events that arrive before it's assigned are dropped.
+    public func subscribe(_ config: PubSub.SubscriptionConfig) throws -> PubSub.SubscriptionHandler {
+        guard !config.topic.isEmpty else { throw PubSubError.invalidTopic }
+        guard let pubsub = self as? PubSubCore else { throw PubSubError.notRunning }
+        let handler = PubSub.SubscriptionHandler(pubSub: pubsub, topic: config.topic)
+        let legacyHandler = LegacySubscriptionHandler(handler)
+        let configuration = TopicConfiguration(config)
+        self.schedule { engine in
+            do {
+                try await engine.subscribe(configuration, handler: legacyHandler)
+            } catch {
+                engine.logger.warning("Failed to subscribe to `\(configuration.topic)`: \(error)")
+            }
+        }
+        return handler
+    }
+
+    public func unsubscribe(topic: String, on loop: EventLoop? = nil) -> EventLoopFuture<Void> {
+        self.future(on: loop) { await $0.unsubscribe(from: topic) }
+    }
+
+    public func getTopics(on loop: EventLoop? = nil) -> EventLoopFuture<[String]> {
+        self.future(on: loop) { await $0.subscribedTopics() }
+    }
+
+    public func getPeersSubscribed(to topic: String, on loop: EventLoop? = nil) -> EventLoopFuture<[PeerID]> {
+        self.future(on: loop) { await $0.peers(subscribedTo: topic) }
+    }
+
+    public func publish(topic: String, data: Data, on loop: EventLoop? = nil) -> EventLoopFuture<Void> {
+        self.future(on: loop) { try await $0.publish(data, to: topic) }
+    }
+
+    public func publish(topic: String, bytes: [UInt8], on loop: EventLoop? = nil) -> EventLoopFuture<Void> {
+        self.publish(topic: topic, data: Data(bytes), on: loop)
+    }
+
+    public func publish(topic: String, buffer: ByteBuffer, on loop: EventLoop? = nil) -> EventLoopFuture<Void> {
+        self.publish(topic: topic, data: Data(buffer.readableBytesView), on: loop)
+    }
+
+    // MARK: - LifecycleHandler
+
+    public func didBoot(_ application: Application) throws {
+        try self.start()
+    }
+
+    public func didBootAsync(_ application: Application) async throws {
+        self.lifecycleState.withLockedValue { $0 = .started }
+        _ = await self.schedule { await $0.start() }.result
+    }
+
+    public func shutdown(_ application: Application) {
+        try? self.stop()
+    }
+
+    public func shutdownAsync(_ application: Application) async {
+        self.lifecycleState.withLockedValue { $0 = .stopped }
+        _ = await self.schedule { await $0.stop() }.result
+    }
+
+    // MARK: - Operations
+
+    /// Runs `operation` on the engine once every previously issued operation has completed
+    @discardableResult
+    func schedule<T: Sendable>(
+        _ operation: @escaping @Sendable (PubSubEngine) async throws -> T
+    ) -> Task<T, Error> {
+        let engine = self.engine
+        return self.lastOperation.withLockedValue { last in
+            let previous = last
+            let task = Task {
+                await previous?.value
+                return try await operation(engine)
+            }
+            last = Task { _ = await task.result }
+            return task
+        }
+    }
+
+    /// Schedules `operation` and bridges its result into an `EventLoopFuture`
+    private func future<T: Sendable>(
+        on loop: EventLoop?,
+        _ operation: @escaping @Sendable (PubSubEngine) async throws -> T
+    ) -> EventLoopFuture<T> {
+        let task = self.schedule(operation)
+        return (loop ?? self.eventLoop).makeFutureWithTask { try await task.value }
+    }
+}
