@@ -631,11 +631,13 @@ extension GossipSub {
                 // - TODO: Event sub, possibly remove later...
                 self._eventHandler?(.inbound(.graft(remotePeer, graft.topicID)))
 
-                // - TODO: Do we need to respond with a graft message to confirm? or does no response == confirmation??
-                // - No Response = Confirmation
-                // - Prune Response = Rejection
-                return self.graft(peer: remotePeer, for: graft.topicID, andSend: true, includingRecentIHaves: true)
-                    .map { _ in nil }
+                /// No Response = Confirmation, Prune Response = Rejection.
+                /// So we simply add the peer to our mesh, without sending a GRAFT back.
+                /// - Note: If this pushes us over D_hi, our heartbeat will prune the excess peers.
+                guard let ps = self.peerState as? PeeringState else {
+                    return self.eventLoop.makeFailedFuture(Errors.invalidPeerStateConformance)
+                }
+                return ps.makeFullPeer(remotePeer, for: graft.topicID).map { _ in nil }
 
             } else {
                 // We're not subscribed to the topic, reject the graft message by sending a prune message
