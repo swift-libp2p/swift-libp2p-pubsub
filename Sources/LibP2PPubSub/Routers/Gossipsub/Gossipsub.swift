@@ -741,8 +741,8 @@ extension GossipSub {
         )
 
         guard !ids.isEmpty else {
-            self.logger.warning("We're discarding received iHave messages...")
-            self.logger.warning("\(iHaves.map { "\($0.topicID) - \($0.messageIds.count)" }.joined(separator: "\n"))")
+            self.logger.trace("We're discarding received iHave messages...")
+            self.logger.trace("\(iHaves.map { "\($0.topicID) - \($0.messageIds.count)" }.joined(separator: "\n"))")
             return self.eventLoop.makeSucceededFuture(nil)
         }
 
