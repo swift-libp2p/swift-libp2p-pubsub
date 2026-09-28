@@ -2,7 +2,7 @@
 //
 // This source file is part of the swift-libp2p open source project
 //
-// Copyright (c) 2022-2025 swift-libp2p project authors
+// Copyright (c) 2022-2026 swift-libp2p project authors
 // Licensed under MIT
 //
 // See LICENSE for license information
@@ -651,7 +651,7 @@ final class LibP2PPubSubGossipsubTests {
     private func makeHost() throws -> Application {
         let lib = try Application(.testing, peerID: PeerID(.Ed25519))
         lib.logger.logLevel = .info
-        lib.connectionManager.use(connectionType: BasicConnectionLight.self)
+        lib.connectionManager.use(connectionType: BaseConnection.self)
         lib.security.use(.noise)
         lib.muxers.use(.yamux)
         lib.pubsub.use(.gossipsub)

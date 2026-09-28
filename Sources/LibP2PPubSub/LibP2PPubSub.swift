@@ -2,7 +2,7 @@
 //
 // This source file is part of the swift-libp2p open source project
 //
-// Copyright (c) 2022-2025 swift-libp2p project authors
+// Copyright (c) 2022-2026 swift-libp2p project authors
 // Licensed under MIT
 //
 // See LICENSE for license information
@@ -305,7 +305,7 @@ open class BasePubSub: @unchecked Sendable {
         guard let codec = self.multicodecs.first?.stringValue else { return }
 
         // -TODO: Maybe we take this opportunity to open a PubSub stream if one doesn't already exist...
-        if let conn = connection as? BasicConnectionLight {
+        if let conn = connection as? BaseConnection {
             self.logger.debug(
                 "PubSub::Attempting to auto-dial \(connection.remotePeer?.description ?? "nil") for outbound `\(codec)` stream"
             )

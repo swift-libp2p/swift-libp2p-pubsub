@@ -2,7 +2,7 @@
 //
 // This source file is part of the swift-libp2p open source project
 //
-// Copyright (c) 2022-2025 swift-libp2p project authors
+// Copyright (c) 2022-2026 swift-libp2p project authors
 // Licensed under MIT
 //
 // See LICENSE for license information
@@ -351,14 +351,17 @@ final class LibP2PPubSubFloodsubTests {
         }
 
         /// Init the libp2p nodes, floodsub routers, and prepare our expectations
-        var nodes: [Node] = try (0..<nodesToTest).map { idx in
-            let node = try makeHost()
-            node.connectionManager.use(connectionType: BasicConnectionLight.self)
-            return Node(
-                libp2p: node,
-                expectation: AsyncSemaphore(value: 0),
-                tag: "Node\(idx) received all messages",
-                messageToSend: "Hello from node \(idx) 🍌"
+        var nodes: [Node] = []
+        for idx in 0..<nodesToTest {
+            let node = try await makeHost()
+            node.connectionManager.use(connectionType: BaseConnection.self)
+            nodes.append(
+                Node(
+                    libp2p: node,
+                    expectation: AsyncSemaphore(value: 0),
+                    tag: "Node\(idx) received all messages",
+                    messageToSend: "Hello from node \(idx) 🍌"
+                )
             )
         }
 
@@ -709,9 +712,9 @@ final class LibP2PPubSubFloodsubTests {
     }
 
     var nextPort: Int = 10200
-    private func makeHost() throws -> Application {
-        let lib = try Application(.testing, peerID: PeerID(.Ed25519))
-        lib.connectionManager.use(connectionType: BasicConnectionLight.self)
+    private func makeHost() async throws -> Application {
+        let lib = try await Application.make(.testing, peerID: .ephemeral(type: .Ed25519))
+        lib.connectionManager.use(connectionType: BaseConnection.self)
         lib.logger.logLevel = .info
         lib.security.use(.noise)
         lib.muxers.use(.yamux)
