@@ -395,11 +395,13 @@ public class GossipSub: BasePubSub, PubSubCore, LifecycleHandler, @unchecked Sen
             self.getMetaPeers(forTopic: config.topic).flatMap { subscribers -> EventLoopFuture<Void> in
                 //self.getPeersSubscribed(to: config.topic).flatMap { subscribers -> EventLoopFuture<Void> in
                 guard !subscribers.isEmpty else { return self.eventLoop.makeSucceededVoidFuture() }
-                let graftSubscribers = subscribers.prefix(self.targetOutboundDegree)
+                /// JOIN: select up to D random peers subscribed to the topic and GRAFT them into our mesh
+                let graftSubscribers = subscribers.shuffled().prefix(self.targetOutboundDegree)
                 self.logger.trace("Sending Graft Messages to \(graftSubscribers.count) subscribers")
                 return graftSubscribers.map {
                     self.logger.trace("Sending Graft Message to \($0.id)")
                     return self.graft(peer: $0, for: config.topic, andSend: true, includingRecentIHaves: true)
+                        .recover { _ in }
                 }.flatten(on: self.eventLoop)
             }
         }
@@ -427,11 +429,13 @@ public class GossipSub: BasePubSub, PubSubCore, LifecycleHandler, @unchecked Sen
             self.getMetaPeers(forTopic: config.topic).flatMap { subscribers -> EventLoopFuture<Void> in
                 //self.getPeersSubscribed(to: config.topic).flatMap { subscribers -> EventLoopFuture<Void> in
                 guard !subscribers.isEmpty else { return self.eventLoop.makeSucceededVoidFuture() }
-                let graftSubscribers = subscribers.prefix(self.targetOutboundDegree)
+                /// JOIN: select up to D random peers subscribed to the topic and GRAFT them into our mesh
+                let graftSubscribers = subscribers.shuffled().prefix(self.targetOutboundDegree)
                 self.logger.trace("Sending Graft Messages to \(graftSubscribers.count) subscribers")
                 return graftSubscribers.map {
                     self.logger.trace("Sending Graft Message to \($0.id)")
                     return self.graft(peer: $0, for: config.topic, andSend: true, includingRecentIHaves: true)
+                        .recover { _ in }
                 }.flatten(on: self.eventLoop)
             }
         }
