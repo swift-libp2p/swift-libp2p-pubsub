@@ -455,42 +455,10 @@ final class PeeringState: PeerStateProtocol, @unchecked Sendable {
         }
     }
 
-    /// This method returns true if the peer is a full peers
-    /// false if the peer is a meta data only peer
-    /// and throws an error if the peer id is unknown
-    /// - TODO: shouldn't this be topic specific??
-    func isFullPeer(_ peer: PeerID) -> EventLoopFuture<Bool> {
+    /// Returns true if the peer is a full peer (in our mesh) for the specified topic, false otherwise (including when the peer is unknown)
+    func isFullPeer(_ peer: PeerID, forTopic topic: Topic) -> EventLoopFuture<Bool> {
         eventLoop.submit { () -> Bool in
-            var isPeer = false
-            var isFull = false
-            let id = peer.b58String
-
-            /// Check our mesh cache for the peer id
-            for (_, subs) in self.mesh {
-                if subs.contains(id) {
-                    isPeer = true
-                    isFull = true
-                    break
-                }
-            }
-            /// If we found the peer in our Mesh cach, they're a full peer, return true!
-            if isPeer && isFull { return true }
-
-            /// Lets proceed to check the fanout...
-            for (_, subs) in self.fanout {
-                if subs.contains(id) {
-                    isPeer = true
-                    isFull = false
-                    break
-                }
-            }
-
-            /// We found the peer but they're a metadata only peer...
-            if isPeer { return false }
-
-            /// If we don't have record of this peer, throw an error
-            self.logger.error("Error while checking isFullPeer, unknown PeerID:\(peer)")
-            throw Errors.unknownPeerID
+            self.mesh[topic]?.contains(peer.b58String) == true
         }
     }
 
