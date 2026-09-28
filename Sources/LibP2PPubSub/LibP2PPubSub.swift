@@ -1391,30 +1391,60 @@ extension BasePubSub {
         //return self.messageSequenceNumber
     }
 
+    /// Verifies a StrictSign message's signature
+    ///
+    /// [Spec](https://github.com/libp2p/specs/blob/master/pubsub/README.md#message-signing)
+    /// - If the `key` field is present, it MUST match the `from` PeerID.
+    /// - If the `key` field is absent, the public key MUST be extractable from the `from` PeerID (ex: Ed25519 identity multihash PeerIDs).
     internal func verifyMessageSignature(_ message: PubSubMessage) throws -> Bool {
-        //self.mainLoop.submit { () -> Bool in
-        guard let key = try? PeerID(marshaledPublicKey: message.key) else {
-            self.logger.warning("Failed to recover public key from message data")
+        guard let author = try? PeerID(fromBytesID: message.from.byteArray) else {
+            self.logger.warning("Failed to decode the message author's PeerID")
             return false
         }
 
-        if key.b58String != message.from.asString(base: .base58btc) {
-            self.logger.warning("Message Key does NOT belong to sender")
-            return false
+        let key: PeerID
+        if message.key.isEmpty {
+            /// The public key should be inlined within the author's PeerID
+            guard author.type != .idOnly else {
+                self.logger.warning("Message is missing the `key` field and the public key can't be extracted from the author's PeerID")
+                return false
+            }
+            key = author
+        } else {
+            guard let marshaledKey = try? PeerID(marshaledPublicKey: message.key) else {
+                self.logger.warning("Failed to recover public key from message data")
+                return false
+            }
+            guard marshaledKey == author else {
+                self.logger.warning("Message Key does NOT belong to sender")
+                return false
+            }
+            key = marshaledKey
         }
 
-        let messageWithoutSignature = try RPC.Message.with { msg in
-            msg.from = message.from
-            msg.data = message.data
-            msg.seqno = message.seqno
-            msg.topicIds = message.topicIds
-        }.serializedData()
+        /// The signature covers the marshalled message with the `signature` and `key` fields removed.
+        /// Like go-libp2p-pubsub, we clone the received message and clear those fields (rather than rebuilding it), so field presence and
+        /// any unknown fields are preserved exactly as the author serialized them.
+        let messageWithoutSignature: Data
+        if var rpcMessage = message as? RPC.Message {
+            rpcMessage.clearSignature()
+            rpcMessage.clearKey()
+            messageWithoutSignature = try rpcMessage.serializedData()
+        } else {
+            messageWithoutSignature = try RPC.Message.with { msg in
+                msg.from = message.from
+                msg.data = message.data
+                msg.seqno = message.seqno
+                msg.topicIds = message.topicIds
+            }.serializedData()
+        }
 
         let verified = try key.isValidSignature(
             message.signature,
             for: BasePubSub.MessagePrefix + messageWithoutSignature
         )
 
+        if !verified { self.logger.warning("Invalid message signature. Dropping Message.") }
         return verified == true
         //}
     }
