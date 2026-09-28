@@ -2,7 +2,7 @@
 //
 // This source file is part of the swift-libp2p open source project
 //
-// Copyright (c) 2022-2025 swift-libp2p project authors
+// Copyright (c) 2022-2026 swift-libp2p project authors
 // Licensed under MIT
 //
 // See LICENSE for license information
@@ -211,7 +211,7 @@ public final class FloodSub: BasePubSub, PubSubCore, LifecycleHandler, @unchecke
                 }
                 self.logger.info("Forwarding message to subscriber \(peerStreams.id)")
 
-                try? peerStreams.write(putUVarInt(UInt64(payload.count)) + payload)
+                try? peerStreams.write(UInt64(payload.count).varIntBytes.bytes + payload)
                 return self.eventLoop.makeSucceededVoidFuture()
             }.flatten(on: self.eventLoop)
         }

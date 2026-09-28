@@ -2,7 +2,7 @@
 //
 // This source file is part of the swift-libp2p open source project
 //
-// Copyright (c) 2022-2025 swift-libp2p project authors
+// Copyright (c) 2022-2026 swift-libp2p project authors
 // Licensed under MIT
 //
 // See LICENSE for license information
@@ -15,6 +15,7 @@
 import LibP2P
 import LibP2PNoise
 import LibP2PYAMUX
+import NIOConcurrencyHelpers
 import Testing
 
 @testable import LibP2PPubSub
@@ -28,8 +29,8 @@ final class LibP2PPubSubGossipsubTests {
     @Test(.timeLimit(.minutes(1)))
     func testLibP2PPubSub_GossipSub() async throws {
         /// Init the libp2p nodes
-        let node1 = try makeHost()
-        let node2 = try makeHost()
+        let node1 = try await makeHost()
+        let node2 = try await makeHost()
 
         /// Prepare our expectations
         let expectationNode1ReceivedNode2Subscription = AsyncSemaphore(value: 0)
@@ -41,7 +42,7 @@ final class LibP2PPubSubGossipsubTests {
         let node2Message = "pineapple"
 
         /// Node1 subscribes to topic 'fruit'
-        let subscription1 = try node1.pubsub.gossipsub.subscribe(
+        let subscription1: PubSub.SubscriptionHandler = try node1.pubsub.gossipsub.subscribe(
             .init(
                 topic: "fruit",
                 signaturePolicy: .strictSign,
@@ -69,7 +70,7 @@ final class LibP2PPubSubGossipsubTests {
         }
 
         /// Node2 subcribes to topic 'fruit'
-        let subscription2 = try node2.pubsub.gossipsub.subscribe(
+        let subscription2: PubSub.SubscriptionHandler = try node2.pubsub.gossipsub.subscribe(
             .init(
                 topic: "fruit",
                 signaturePolicy: .strictSign,
@@ -104,7 +105,7 @@ final class LibP2PPubSubGossipsubTests {
             try await Task.sleep(for: .milliseconds(100))
 
             /// Have node1 reach out to node2
-            try node1.newStream(to: node2.peerInfo, forProtocol: "/meshsub/1.0.0")
+            try await node1.newStream(to: node2.peerInfo, forProtocol: "/meshsub/1.0.0")
 
             /// Publish some messages...
             node1.eventLoopGroup.next().scheduleTask(in: .seconds(1)) {
@@ -119,8 +120,8 @@ final class LibP2PPubSubGossipsubTests {
             await expectationNode2ReceivedNode1Subscription.wait()
             await expectationNode2ReceivedNode1Message.wait()
 
-            subscription1.unsubscribe()
-            subscription2.unsubscribe()
+            try await subscription1.unsubscribe()
+            try await subscription2.unsubscribe()
 
             try await Task.sleep(for: .milliseconds(100))
 
@@ -157,8 +158,8 @@ final class LibP2PPubSubGossipsubTests {
     @Test(.timeLimit(.minutes(1)))
     func testLibP2PPubSub_Gossipsub_Subscriptions() async throws {
         /// Init the libp2p nodes
-        let node1 = try makeHost()
-        let node2 = try makeHost()
+        let node1 = try await makeHost()
+        let node2 = try await makeHost()
 
         /// Prepare our expectations
         let expectationNode1ReceivedNode2Subscription = AsyncSemaphore(value: 0)
@@ -172,7 +173,7 @@ final class LibP2PPubSubGossipsubTests {
         let node1Message = "hot news!"
         var node2SubscriptionCount = 0
         /// Node1 subscribes to topic 'fruit'
-        let subscription1 = try node1.pubsub.gossipsub.subscribe(
+        let subscription1: PubSub.SubscriptionHandler = try node1.pubsub.gossipsub.subscribe(
             .init(
                 topic: "news",
                 signaturePolicy: .strictSign,
@@ -233,7 +234,7 @@ final class LibP2PPubSubGossipsubTests {
             return node2.eventLoopGroup.next().makeSucceededVoidFuture()
         }
 
-        var subscription2 = try node2.pubsub.gossipsub.subscribe(
+        var subscription2: PubSub.SubscriptionHandler = try node2.pubsub.gossipsub.subscribe(
             .init(
                 topic: "news",
                 signaturePolicy: .strictSign,
@@ -251,7 +252,7 @@ final class LibP2PPubSubGossipsubTests {
 
         do {
             /// Have node2 reach out to node1
-            try node2.newStream(to: node1.peerInfo, forProtocol: GossipSub.multicodec)
+            try await node2.newStream(to: node1.peerInfo, forProtocol: GossipSub.multicodec)
 
             /// Publish some messages...
             let counter: NIOLockedValueBox<Int> = .init(0)
@@ -273,7 +274,7 @@ final class LibP2PPubSubGossipsubTests {
 
             /// Unsubscribe Node2 from our `news` subscription
             //try node2.pubsub.gossipsub.unsubscribe(topic: "news").wait()
-            subscription2.unsubscribe()
+            try await subscription2.unsubscribe()
 
             //await expectationNode1ReceivedNode2Unsubscription.wait()
 
@@ -301,7 +302,7 @@ final class LibP2PPubSubGossipsubTests {
             try await Task.sleep(for: .seconds(1))
 
             //try node2.pubsub.gossipsub.unsubscribe(topic: "news").wait()
-            subscription2.unsubscribe()
+            try await subscription2.unsubscribe()
 
             try await Task.sleep(for: .seconds(1))
 
@@ -382,13 +383,16 @@ final class LibP2PPubSubGossipsubTests {
         }
 
         /// Init the libp2p nodes, gossipsub routers, and prepare our expectations
-        var nodes: [Node] = try (0..<nodesToTest).map { idx in
-            let node = try makeHost()
-            return Node(
-                libp2p: node,
-                expectation: AsyncSemaphore(value: 0),
-                tag: "Node\(idx) received all messages",
-                messageToSend: "Hello from node\(idx) 🍌"
+        var nodes: [Node] = []
+        for idx in 0..<nodesToTest {
+            let node = try await makeHost()
+            nodes.append(
+                Node(
+                    libp2p: node,
+                    expectation: AsyncSemaphore(value: 0),
+                    tag: "Node\(idx) received all messages",
+                    messageToSend: "Hello from node\(idx) 🍌"
+                )
             )
         }
 
@@ -438,7 +442,7 @@ final class LibP2PPubSubGossipsubTests {
                 ///  n -> ... -> n
                 for (idx, node) in nodes.enumerated() {
                     guard nodes.count > (idx + 1) else { continue }
-                    try node.libp2p.newStream(
+                    try await node.libp2p.newStream(
                         to: nodes[idx + 1].libp2p.peerInfo,
                         forProtocol: GossipSub.multicodec
                     )
@@ -453,13 +457,13 @@ final class LibP2PPubSubGossipsubTests {
                 ///  '--------------'
                 for (idx, node) in nodes.enumerated() {
                     guard nodes.count > (idx + 1) else {
-                        try node.libp2p.newStream(
+                        try await node.libp2p.newStream(
                             to: nodes[0].libp2p.peerInfo,
                             forProtocol: GossipSub.multicodec
                         )
                         continue
                     }
-                    try node.libp2p.newStream(
+                    try await node.libp2p.newStream(
                         to: nodes[idx + 1].libp2p.peerInfo,
                         forProtocol: GossipSub.multicodec
                     )
@@ -477,7 +481,7 @@ final class LibP2PPubSubGossipsubTests {
                 ///
                 for (idx, node) in nodes.enumerated() {
                     guard idx != 0 else { continue }
-                    try node.libp2p.newStream(to: nodes[0].libp2p.peerInfo, forProtocol: GossipSub.multicodec)
+                    try await node.libp2p.newStream(to: nodes[0].libp2p.peerInfo, forProtocol: GossipSub.multicodec)
                 }
 
             case .beacon2beacon:
@@ -494,7 +498,7 @@ final class LibP2PPubSubGossipsubTests {
                     guard idx != 0 else { continue }
                     if idx == 1 {
                         /// Have Node1 reach out to Node0
-                        try node.libp2p.newStream(
+                        try await node.libp2p.newStream(
                             to: nodes[0].libp2p.peerInfo,
                             forProtocol: GossipSub.multicodec
                         )
@@ -502,13 +506,13 @@ final class LibP2PPubSubGossipsubTests {
                     }
                     if idx % 2 == 0 {
                         /// If the node is an even number (have it reach out to Node0, our even beacon node)
-                        try node.libp2p.newStream(
+                        try await node.libp2p.newStream(
                             to: nodes[0].libp2p.peerInfo,
                             forProtocol: GossipSub.multicodec
                         )
                     } else {
                         /// Otherwise the node must be odd (have it reach out to Node1, our odd beacon node)
-                        try node.libp2p.newStream(
+                        try await node.libp2p.newStream(
                             to: nodes[1].libp2p.peerInfo,
                             forProtocol: GossipSub.multicodec
                         )
@@ -583,7 +587,7 @@ final class LibP2PPubSubGossipsubTests {
     /// - Note: The JS example uses the `concatFromAndSequenceFields` messageID function
     @Test(.externalIntegrationTestsEnabled)
     func testGossipsubJSInterop() async throws {
-        let app = try Application(.testing, peerID: PeerID(.Ed25519))
+        let app = try await Application.make(.testing, peerID: .ephemeral(type: .Ed25519))
         app.logger.logLevel = .trace
 
         /// Configure our networking stack!
@@ -598,7 +602,7 @@ final class LibP2PPubSubGossipsubTests {
 
         try await app.startup()
 
-        let subscription = try app.pubsub.gossipsub.subscribe(
+        let subscription: PubSub.SubscriptionHandler = try app.pubsub.gossipsub.subscribe(
             .init(
                 topic: topic,
                 signaturePolicy: .strictSign,
@@ -628,14 +632,14 @@ final class LibP2PPubSubGossipsubTests {
             return app.eventLoopGroup.next().makeSucceededVoidFuture()
         }
 
-        try? app.newStream(to: Multiaddr("/ip4/192.168.1.19/tcp/56758"), forProtocol: "/ipfs/ping/1.0.0")
+        try? await app.newStream(to: Multiaddr("/ip4/192.168.1.19/tcp/56758"), forProtocol: "/ipfs/ping/1.0.0")
 
         await messageExpectation.wait()
 
-        let _ = app.pubsub.publish("Goodbyte from swift!".data(using: .utf8)!.byteArray, toTopic: topic)
+        let _ = try await app.pubsub.publish("Goodbyte from swift!".data(using: .utf8)!.byteArray, toTopic: topic)
         //subscription.publish("Goodbyte from swift!".data(using: .utf8)!.bytes)
 
-        subscription.unsubscribe()
+        try await subscription.unsubscribe()
 
         try await Task.sleep(for: .seconds(1))
 
@@ -648,10 +652,10 @@ final class LibP2PPubSubGossipsubTests {
     }
 
     var nextPort: Int = 10100
-    private func makeHost() throws -> Application {
-        let lib = try Application(.testing, peerID: PeerID(.Ed25519))
+    private func makeHost() async throws -> Application {
+        let lib = try await Application.make(.testing, peerID: .ephemeral(type: .Ed25519))
         lib.logger.logLevel = .info
-        lib.connectionManager.use(connectionType: BasicConnectionLight.self)
+        lib.connectionManager.use(connectionType: BaseConnection.self)
         lib.security.use(.noise)
         lib.muxers.use(.yamux)
         lib.pubsub.use(.gossipsub)

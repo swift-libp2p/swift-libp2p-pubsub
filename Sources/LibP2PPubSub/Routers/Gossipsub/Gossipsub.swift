@@ -2,7 +2,7 @@
 //
 // This source file is part of the swift-libp2p open source project
 //
-// Copyright (c) 2022-2025 swift-libp2p project authors
+// Copyright (c) 2022-2026 swift-libp2p project authors
 // Licensed under MIT
 //
 // See LICENSE for license information
@@ -157,7 +157,7 @@ public class GossipSub: BasePubSub, PubSubCore, LifecycleHandler, @unchecked Sen
                     } else {
                         return self.eventLoop.makeSucceededVoidFuture()
                     }
-                }.flatten(on: self.eventLoop).transform(to: ())
+                }.flatten(on: self.eventLoop).map { _ in () }
             }
         )
 
@@ -226,7 +226,7 @@ public class GossipSub: BasePubSub, PubSubCore, LifecycleHandler, @unchecked Sen
                         }
 
                         guard var payload = try? rpc.serializedData() else { return }
-                        payload = putUVarInt(UInt64(payload.count)) + payload
+                        payload = UInt64(payload.count).varIntBytes.bytes + payload
 
                         try? subscriber.write(payload.byteArray)
                         self._eventHandler?(
@@ -518,7 +518,7 @@ public class GossipSub: BasePubSub, PubSubCore, LifecycleHandler, @unchecked Sen
                 var forwardedRPC = RPC()
                 forwardedRPC.msgs = msgs.compactMap { $0 as? RPC.Message }
                 var payload = try! forwardedRPC.serializedData()
-                payload = putUVarInt(UInt64(payload.count)) + payload
+                payload = UInt64(payload.count).varIntBytes.bytes + payload
 
                 /// Send the message to each peer subscribed to this topic
                 return subscribers.compactMap { peerStreams -> EventLoopFuture<Void> in
@@ -598,7 +598,7 @@ extension GossipSub {
                 // - No Response = Confirmation
                 // - Prune Response = Rejection
                 return self.graft(peer: remotePeer, for: graft.topicID, andSend: true, includingRecentIHaves: true)
-                    .transform(to: nil)
+                    .map { _ in nil }
 
             } else {
                 // We're not subscribed to the topic, reject the graft message by sending a prune message
@@ -757,7 +757,7 @@ extension GossipSub {
             }
 
             var payload = try! rpc.serializedData()
-            payload = putUVarInt(UInt64(payload.count)) + payload
+            payload = UInt64(payload.count).varIntBytes.bytes + payload
 
             /// Respond to the remote peer
             self.logger.debug("Responding to Control Message")
@@ -787,7 +787,7 @@ extension GossipSub {
 
         /// Serialize it and format it (with uVarInt length prefix)
         var prunePayload = try! rpcPrune.serializedData()
-        prunePayload = putUVarInt(UInt64(prunePayload.count)) + prunePayload
+        prunePayload = UInt64(prunePayload.count).varIntBytes.bytes + prunePayload
         self.logger.trace("Prune Raw Message: \(prunePayload.asString(base: .base16))")
 
         /// Send it
@@ -845,7 +845,7 @@ extension GossipSub {
 
         /// Serialize it and format it (with uVarInt length prefix)
         var graftPayload = try! rpcGraft.serializedData()
-        graftPayload = putUVarInt(UInt64(graftPayload.count)) + graftPayload
+        graftPayload = UInt64(graftPayload.count).varIntBytes.bytes + graftPayload
         self.logger.trace("Graft Raw Message: \(graftPayload.asString(base: .base16))")
 
         /// Send it
@@ -913,7 +913,7 @@ extension GossipSub {
 
             /// Serialize it and format it (with uVarInt length prefix)
             var wantPayload = try! rpcWant.serializedData()
-            wantPayload = putUVarInt(UInt64(wantPayload.count)) + wantPayload
+            wantPayload = UInt64(wantPayload.count).varIntBytes.bytes + wantPayload
             self.logger.debug("IWant Raw Message: \(wantPayload.asString(base: .base16))")
 
             /// - FIXME: stream.write never completes, it should...
@@ -944,7 +944,7 @@ extension GossipSub {
 
             /// Serialize it and format it (with uVarInt length prefix)
             var havePayload = try! rpcHave.serializedData()
-            havePayload = putUVarInt(UInt64(havePayload.count)) + havePayload
+            havePayload = UInt64(havePayload.count).varIntBytes.bytes + havePayload
             self.logger.debug("IHave Raw Message: \(havePayload.asString(base: .base16))")
 
             /// - FIXME: This future never completes, because our write future never completes...

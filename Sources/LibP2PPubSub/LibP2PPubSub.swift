@@ -2,7 +2,7 @@
 //
 // This source file is part of the swift-libp2p open source project
 //
-// Copyright (c) 2022-2025 swift-libp2p project authors
+// Copyright (c) 2022-2026 swift-libp2p project authors
 // Licensed under MIT
 //
 // See LICENSE for license information
@@ -305,7 +305,7 @@ open class BasePubSub: @unchecked Sendable {
         guard let codec = self.multicodecs.first?.stringValue else { return }
 
         // -TODO: Maybe we take this opportunity to open a PubSub stream if one doesn't already exist...
-        if let conn = connection as? BasicConnectionLight {
+        if let conn = connection as? BaseConnection {
             self.logger.debug(
                 "PubSub::Attempting to auto-dial \(connection.remotePeer?.description ?? "nil") for outbound `\(codec)` stream"
             )
@@ -652,7 +652,7 @@ open class BasePubSub: @unchecked Sendable {
         }
 
         let payload = try rpc.serializedData()
-        return putUVarInt(UInt64(payload.count)) + payload
+        return UInt64(payload.count).varIntBytes.bytes + payload
     }
 
     private func notifyHandlers(for subs: [String: Bool], peer remotePeer: PeerID) {
@@ -912,7 +912,7 @@ open class BasePubSub: @unchecked Sendable {
                 /// Serialize it
                 var payload = try rpc.serializedData()
                 /// prepend a varint length prefix
-                payload = Data(putUVarInt(UInt64(payload.count)) + payload.byteArray)
+                payload = Data(UInt64(payload.count).varIntBytes.bytes + payload.byteArray)
 
                 self.logger.trace("\(payload.asString(base: .base16))")
 
@@ -1011,7 +1011,7 @@ open class BasePubSub: @unchecked Sendable {
         }
 
         let payload = try rpc.serializedData()
-        return putUVarInt(UInt64(payload.count)) + payload
+        return UInt64(payload.count).varIntBytes.bytes + payload
     }
 
     public func generateSubPayload(forTopics topics: [String]) throws -> [UInt8] {
@@ -1025,7 +1025,7 @@ open class BasePubSub: @unchecked Sendable {
         }
 
         let payload = try rpc.serializedData()
-        return putUVarInt(UInt64(payload.count)) + payload
+        return UInt64(payload.count).varIntBytes.bytes + payload
     }
 
     /// This method simply removes any references to the subscribed topic.
@@ -1056,7 +1056,7 @@ open class BasePubSub: @unchecked Sendable {
                     self.subscriptions.removeValue(forKey: topic)
 
                     // Let our peerstate know of our unsubscription
-                    return self.peerState.unsubscribeSelf(from: topic, on: nil).transform(to: ())
+                    return self.peerState.unsubscribeSelf(from: topic, on: nil).map { _ in () }
                 }
             } catch {
                 self.logger.warning("Failed to unsubscribe from topic `\(topic)` -> \(error)")

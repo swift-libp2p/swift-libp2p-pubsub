@@ -2,7 +2,7 @@
 //
 // This source file is part of the swift-libp2p open source project
 //
-// Copyright (c) 2022-2025 swift-libp2p project authors
+// Copyright (c) 2022-2026 swift-libp2p project authors
 // Licensed under MIT
 //
 // See LICENSE for license information
@@ -23,7 +23,7 @@ import Testing
 struct LibP2PPubSubTests {
 
     @Test func testAppConfiguration_Floodsub() async throws {
-        let app = try Application(.testing, peerID: PeerID(.Ed25519))
+        let app = try await Application.make(.testing, peerID: .ephemeral(type: .Ed25519))
         app.logger.logLevel = .trace
 
         /// Configure our networking stack!
@@ -44,7 +44,7 @@ struct LibP2PPubSubTests {
     }
 
     @Test func testAppConfiguration_Gossipsub() async throws {
-        let app = try Application(.testing, peerID: PeerID(.Ed25519))
+        let app = try await Application.make(.testing, peerID: .ephemeral(type: .Ed25519))
         app.logger.logLevel = .trace
 
         /// Configure our networking stack!
