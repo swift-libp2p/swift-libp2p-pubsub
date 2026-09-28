@@ -157,7 +157,7 @@ public class GossipSub: BasePubSub, PubSubCore, LifecycleHandler, @unchecked Sen
                     } else {
                         return self.eventLoop.makeSucceededVoidFuture()
                     }
-                }.flatten(on: self.eventLoop).transform(to: ())
+                }.flatten(on: self.eventLoop).map { _ in () }
             }
         )
 
@@ -598,7 +598,7 @@ extension GossipSub {
                 // - No Response = Confirmation
                 // - Prune Response = Rejection
                 return self.graft(peer: remotePeer, for: graft.topicID, andSend: true, includingRecentIHaves: true)
-                    .transform(to: nil)
+                    .map { _ in nil }
 
             } else {
                 // We're not subscribed to the topic, reject the graft message by sending a prune message

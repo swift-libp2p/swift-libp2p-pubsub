@@ -1056,7 +1056,7 @@ open class BasePubSub: @unchecked Sendable {
                     self.subscriptions.removeValue(forKey: topic)
 
                     // Let our peerstate know of our unsubscription
-                    return self.peerState.unsubscribeSelf(from: topic, on: nil).transform(to: ())
+                    return self.peerState.unsubscribeSelf(from: topic, on: nil).map { _ in () }
                 }
             } catch {
                 self.logger.warning("Failed to unsubscribe from topic `\(topic)` -> \(error)")
