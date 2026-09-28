@@ -769,12 +769,19 @@ open class BasePubSub: @unchecked Sendable {
                     newMessages -> EventLoopFuture<[PubSubMessage]> in
                     guard !newMessages.isEmpty else { return self.eventLoop.makeSucceededFuture([]) }
 
-                    /// Store the new / unique messages in our Seen & MessaheCache
-                    return self.storeMessages(newMessages).flatMap {
-                        storedMessages -> EventLoopFuture<[PubSubMessage]> in
+                    /// Run the new messages through the topic validators, discarding any that fail
+                    /// - Note: Like go-libp2p-pubsub, we only mark a message as seen once it has passed validation
+                    return self.validateMessages(newMessages).flatMap {
+                        validMessages -> EventLoopFuture<[PubSubMessage]> in
+                        guard !validMessages.isEmpty else { return self.eventLoop.makeSucceededFuture([]) }
 
-                        /// Return the new / unique messages for further processing
-                        self.eventLoop.makeSucceededFuture(storedMessages.map { $0.value })
+                        /// Store the new / unique / valid messages in our Seen & MessageCache
+                        return self.storeMessages(validMessages).flatMap {
+                            storedMessages -> EventLoopFuture<[PubSubMessage]> in
+
+                            /// Return the new / unique messages for further processing
+                            self.eventLoop.makeSucceededFuture(storedMessages.map { $0.value })
+                        }
                     }
                 }
             }
