@@ -202,18 +202,19 @@ public final class FloodSub: BasePubSub, PubSubCore, LifecycleHandler, @unchecke
 
             var forwardedRPC = RPC()
             forwardedRPC.msgs = [message]
-            let payload = try! forwardedRPC.serializedData()
-
-            return subscribers.map { peerStreams in
-                guard peerStreams.id != from else {
-                    self.logger.info("Skipping OP")
-                    return self.eventLoop.makeSucceededVoidFuture()
-                }
-                self.logger.info("Forwarding message to subscriber \(peerStreams.id)")
-
-                try? peerStreams.write(UInt64(payload.count).varIntBytes.bytes + payload)
+            guard let payload = try? forwardedRPC.serializedData() else {
+                self.logger.warning("Failed to serialize RPC for message forwarding")
                 return self.eventLoop.makeSucceededVoidFuture()
-            }.flatten(on: self.eventLoop)
+            }
+            let framedPayload = UInt64(payload.count).varIntBytes.bytes + payload
+
+            for peerStreams in subscribers {
+                /// Don't send the message back to the peer that forwarded it to us, or to the peer that authored it
+                guard peerStreams.id != from, !(message.from == peerStreams.id) else { continue }
+                self.logger.trace("Forwarding message to subscriber \(peerStreams.id)")
+                try? peerStreams.write(framedPayload)
+            }
+            return self.eventLoop.makeSucceededVoidFuture()
         }
     }
 
