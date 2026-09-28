@@ -31,18 +31,27 @@ import NIOConcurrencyHelpers
 public class GossipSub: BasePubSub, PubSubCore, LifecycleHandler, @unchecked Sendable {
     public static let multicodec: String = "/meshsub/1.0.0"
 
-    public let lowerOutboundDegree = 4
+    /// D_lo (go-libp2p-pubsub and rust-libp2p both default to 5)
+    public let lowerOutboundDegree = 5
+    /// D
     public let targetOutboundDegree = 6
+    /// D_hi
     public let upperOutboundDegree = 12
     //public let lazyOutboundDegree = 6
 
     public let heartbeatInterval: TimeAmount = .seconds(1)
-    public let mcacheWindowLength = 8
-    public let mcacheGossipLength = 5
+    /// mcache_len (spec default 5)
+    public static let mcacheWindowLength = 5
+    /// mcache_gossip (spec default 3)
+    public static let mcacheGossipLength = 3
+    public var mcacheWindowLength: Int { GossipSub.mcacheWindowLength }
+    public var mcacheGossipLength: Int { GossipSub.mcacheGossipLength }
 
     public let seenTTL: TimeAmount = .seconds(120)
 
-    private var eventList: [PubSubEvent] = []
+    /// A bounded, thread safe, record of recent PubSub events (for debugging purposes)
+    private static let maxEventListLength = 1_000
+    private let eventList: NIOLockedValueBox<[PubSubEvent]> = .init([])
 
     public init(
         group: EventLoopGroup,
@@ -56,8 +65,8 @@ public class GossipSub: BasePubSub, PubSubCore, LifecycleHandler, @unchecked Sen
         // Init our Message Cache
         let messageCache = MessageCache(
             eventLoop: group.next(),
-            historyWindows: mcacheWindowLength,
-            gossipWindows: mcacheGossipLength
+            historyWindows: GossipSub.mcacheWindowLength,
+            gossipWindows: GossipSub.mcacheGossipLength
         )
 
         // Regsiter our /meshsub/1.0.0 route
