@@ -1225,13 +1225,12 @@ extension BasePubSub {
 
     /// Given a dictionary of Messages, this method will validate each message using the appropriate validation function, and silently discard any messages that fail to validate for any reason. Returns a dictionary of Valid RPC.Messages indexed by their ID
     internal func validateMessages(_ messages: [Data: PubSubMessage]) -> EventLoopFuture<[Data: PubSubMessage]> {
-        var validMessages: [Data: PubSubMessage] = [:]
-        return messages.map { message in
-            self.validate(message: message.value, on: self.eventLoop).map { valid in
-                validMessages[message.key] = message.value
+        self.eventLoop.submit { () -> [Data: PubSubMessage] in
+            messages.filter { message in
+                let valid = self._validate(message: message.value)
+                if !valid { self.logger.debug("Dropping message that failed validation: \(message.key.asString(base: .base16))") }
+                return valid
             }
-        }.flatten(on: self.eventLoop).map {
-            validMessages
         }
     }
 
@@ -1287,16 +1286,22 @@ extension BasePubSub {
 
     func validate(message: PubSubMessage, on loop: EventLoop? = nil) -> EventLoopFuture<Bool> {
         self.eventLoop.submit { () -> Bool in
-            guard let topic = message.topicIds.first else {
-                self.logger.warning("No message topic")
-                return false
-            }
-            guard let validators = self.validators[topic] else {
-                print("Warning! No Validators found for Topic: '\(topic)'. Failing message validation by default.")
-                return false
-            }
-            return validators.allSatisfy { $0(message) }  //TODO: Fail this if it takes to long to return
+            self._validate(message: message)
         }.hop(to: loop ?? eventLoop)
+    }
+
+    /// Runs the message through the validators installed on its topic
+    /// - Warning: Must be called on `self.eventLoop`
+    private func _validate(message: PubSubMessage) -> Bool {
+        guard let topic = message.topicIds.first else {
+            self.logger.warning("No message topic")
+            return false
+        }
+        guard let validators = self.validators[topic] else {
+            self.logger.warning("No Validators found for Topic: '\(topic)'. Failing message validation by default.")
+            return false
+        }
+        return validators.allSatisfy { $0(message) }  //TODO: Fail this if it takes to long to return
     }
 
     /// Warning! We currently only validate the message using the first validation function in the tpoics array
