@@ -544,19 +544,26 @@ public class GossipSub: BasePubSub, PubSubCore, LifecycleHandler, @unchecked Sen
                 /// Ensure there's subscribers to send the messages to, otherwise bail
                 guard subscribers.count > 0 else { return self.eventLoop.makeSucceededVoidFuture() }
 
-                /// Prepare the message
-                var forwardedRPC = RPC()
-                forwardedRPC.msgs = msgs.compactMap { $0 as? RPC.Message }
-                var payload = try! forwardedRPC.serializedData()
-                payload = UInt64(payload.count).varIntBytes.bytes + payload
+                let rpcMessages = msgs.compactMap { $0 as? RPC.Message }
 
-                /// Send the message to each peer subscribed to this topic
-                return subscribers.compactMap { peerStreams -> EventLoopFuture<Void> in
-                    guard peerStreams.id != from else { return self.eventLoop.makeSucceededVoidFuture() }
+                /// Send the messages to each peer subscribed to this topic
+                /// excluding the peer that forwarded them to us and the message's original author
+                for peerStreams in subscribers where peerStreams.id != from {
+                    let messagesForPeer = rpcMessages.filter { !($0.from == peerStreams.id) }
+                    guard !messagesForPeer.isEmpty else { continue }
+
+                    /// Prepare the message
+                    var forwardedRPC = RPC()
+                    forwardedRPC.msgs = messagesForPeer
+                    guard let payload = try? forwardedRPC.serializedData() else {
+                        self.logger.warning("Failed to serialize RPC for message forwarding")
+                        continue
+                    }
+
                     self.logger.debug("Forwarding message to mesh subscriber \(peerStreams.id)")
-                    try? peerStreams.write(payload.byteArray)
-                    return self.eventLoop.makeSucceededVoidFuture()
-                }.flatten(on: self.eventLoop)
+                    try? peerStreams.write(UInt64(payload.count).varIntBytes.bytes + payload.byteArray)
+                }
+                return self.eventLoop.makeSucceededVoidFuture()
             }
 
         }.flatten(on: self.eventLoop)
