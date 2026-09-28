@@ -138,24 +138,21 @@ public class GossipSub: BasePubSub, PubSubCore, LifecycleHandler, @unchecked Sen
 
         /// Mesh Maintenance
         tasks.append(
-            self.peerState.topicSubscriptions(on: self.eventLoop).flatMap { subscriptions -> EventLoopFuture<Void> in
-                guard let ps = self.peerState as? PeeringState else {
-                    return self.eventLoop.makeFailedFuture(Errors.invalidPeerStateConformance)
-                }
-
-                return subscriptions.map { topic in
-                    guard let subs = ps.mesh[topic]?.count else { return self.eventLoop.makeSucceededVoidFuture() }
+            self.getMeshDegrees().flatMap { meshDegrees -> EventLoopFuture<Void> in
+                meshDegrees.map { (topic, subs) -> EventLoopFuture<Void> in
                     if subs < self.lowerOutboundDegree {
                         self.logger.trace(
                             "\(topic) doesn't have enough subscribers (Has: \(subs), Wants: \(self.lowerOutboundDegree)) attempting to graft some peers"
                         )
-                        return self.getMetaPeers().flatMap { metaPeers in
-                            guard let metaSubsForTopic = metaPeers[topic] else {
+                        return self.getMetaPeers(forTopic: topic).flatMap { metaSubsForTopic in
+                            guard !metaSubsForTopic.isEmpty else {
                                 self.logger.trace("No peers in fanout to graft")
                                 return self.eventLoop.makeSucceededVoidFuture()
                             }
-                            return metaSubsForTopic.prefix(self.targetOutboundDegree - subs).map {
+                            /// Select `D - |mesh|` random peers to graft
+                            return metaSubsForTopic.shuffled().prefix(self.targetOutboundDegree - subs).map {
                                 self.graft(peer: $0, for: topic, andSend: true, includingRecentIHaves: true)
+                                    .recover { _ in }
                             }.flatten(on: self.eventLoop)
                         }
                     } else if subs > self.upperOutboundDegree {
@@ -166,14 +163,15 @@ public class GossipSub: BasePubSub, PubSubCore, LifecycleHandler, @unchecked Sen
                             guard fullPeers.count > self.upperOutboundDegree else {
                                 return self.eventLoop.makeSucceededVoidFuture()
                             }
-                            return fullPeers.prefix(fullPeers.count - self.targetOutboundDegree).map {
-                                self.prune(peer: $0.id, for: topic, andSend: true)
+                            /// Select `|mesh| - D` random peers to prune
+                            return fullPeers.shuffled().prefix(fullPeers.count - self.targetOutboundDegree).map {
+                                self.prune(peer: $0.id, for: topic, andSend: true).recover { _ in }
                             }.flatten(on: self.eventLoop)
                         }
                     } else {
                         return self.eventLoop.makeSucceededVoidFuture()
                     }
-                }.flatten(on: self.eventLoop).map { _ in () }
+                }.flatten(on: self.eventLoop)
             }
         )
 
@@ -255,8 +253,9 @@ public class GossipSub: BasePubSub, PubSubCore, LifecycleHandler, @unchecked Sen
                     }
 
                 }.flatten(on: self.eventLoop).map {
-                    if messagesSent.withLockedValue({ $0 }) > 0 {
-                        self.logger.debug("Sent iHave Control messages to \(messagesSent) meta peers")
+                    let sent = messagesSent.withLockedValue({ $0 })
+                    if sent > 0 {
+                        self.logger.debug("Sent iHave Control messages to \(sent) meta peers")
                     }
                 }
             }
@@ -292,6 +291,14 @@ public class GossipSub: BasePubSub, PubSubCore, LifecycleHandler, @unchecked Sen
             return self.eventLoop.makeFailedFuture(Errors.invalidPeerStateConformance)
         }
         return ps.metaPeerIDs()
+    }
+
+    /// Returns the number of (connected) peers in our mesh for each topic we're subscribed to
+    private func getMeshDegrees() -> EventLoopFuture<[String: Int]> {
+        guard let ps = self.peerState as? PeeringState else {
+            return self.eventLoop.makeFailedFuture(Errors.invalidPeerStateConformance)
+        }
+        return ps.meshDegrees(on: self.eventLoop)
     }
 
     private func getMetaPeers(forTopic topic: String) -> EventLoopFuture<[PeerID]> {
