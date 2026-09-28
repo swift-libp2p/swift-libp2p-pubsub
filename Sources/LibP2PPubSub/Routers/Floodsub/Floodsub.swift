@@ -189,16 +189,16 @@ public final class FloodSub: BasePubSub, PubSubCore, LifecycleHandler, @unchecke
             return self.eventLoop.makeSucceededVoidFuture()
         }
 
+        guard let topic = message.topicIds.first else { return self.eventLoop.makeSucceededVoidFuture() }
+
         /// The message has already been vetted
-        /// Forward the message onto any other subscribers to this topic (excluding the sender)
-        return self.peerState.peersSubscribedTo(topic: message.topicIds.first!, on: nil).flatMap {
+        /// Forward the message onto any other subscribers to this topic (excluding the sender and the original author)
+        return self.peerState.peersSubscribedTo(topic: topic, on: nil).flatMap {
             subscribers -> EventLoopFuture<Void> in
 
             guard subscribers.count > 0 else { return self.eventLoop.makeSucceededVoidFuture() }
 
-            self.logger.info(
-                "Checking \(subscribers.count) `\(message.topicIds.first!)` subscribers for message propogation"
-            )
+            self.logger.trace("Checking \(subscribers.count) `\(topic)` subscribers for message propogation")
 
             var forwardedRPC = RPC()
             forwardedRPC.msgs = [message]
