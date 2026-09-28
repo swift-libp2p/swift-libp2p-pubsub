@@ -121,10 +121,10 @@ final class LibP2PPubSubFloodsubTests {
             }
 
             // Wait for our sequence of events to trigger
-            await expectationNode1ReceivedNode2Subscription.wait()
-            await expectationNode1ReceivedNode2Message.wait()
-            await expectationNode2ReceivedNode1Subscription.wait()
-            await expectationNode2ReceivedNode1Message.wait()
+            try await expectationNode1ReceivedNode2Subscription.wait(timeout: .seconds(10))
+            try await expectationNode1ReceivedNode2Message.wait(timeout: .seconds(10))
+            try await expectationNode2ReceivedNode1Subscription.wait(timeout: .seconds(10))
+            try await expectationNode2ReceivedNode1Message.wait(timeout: .seconds(10))
 
             /// Check to see if we can poll our PeerStore for known peers that support '/floodsub/1.0.0'
             let peers = try await node1.peers.getPeers(supportingProtocol: SemVerProtocol("/floodsub/1.0.0")!, on: nil)
@@ -253,9 +253,9 @@ final class LibP2PPubSubFloodsubTests {
             }
 
             /// Wait for initial subscription alerts and the first message to arrive on Node 2
-            await expectationNode1ReceivedNode2Subscription.wait()
-            await expectationNode2ReceivedNode1Subscription.wait()
-            await expectationNode2ReceivedFirstNode1Message.wait()
+            try await expectationNode1ReceivedNode2Subscription.wait(timeout: .seconds(10))
+            try await expectationNode2ReceivedNode1Subscription.wait(timeout: .seconds(10))
+            try await expectationNode2ReceivedFirstNode1Message.wait(timeout: .seconds(10))
 
             /// Unsubscribe Node2 from our `news` subscription
             //try node2.pubsub.floodsub.unsubscribe(topic: "news").wait()
@@ -270,8 +270,8 @@ final class LibP2PPubSubFloodsubTests {
             subscription2.on = subscriptionHandler
 
             /// Wait for the second subscription alert on Node1 and the second `news` message to arrive at Node2
-            await expectationNode1ReceivedNode2SecondSubscription.wait()
-            await expectationNode2ReceivedSecondNode1Message.wait()
+            try await expectationNode1ReceivedNode2SecondSubscription.wait(timeout: .seconds(10))
+            try await expectationNode2ReceivedSecondNode1Message.wait(timeout: .seconds(10))
 
             try await node2.pubsub.floodsub.unsubscribe(topic: "news").get()
 
@@ -504,7 +504,7 @@ final class LibP2PPubSubFloodsubTests {
 
             /// Wait for each node to receive each message
             for node in nodes {
-                await node.expectation.wait()
+                try await node.expectation.wait(timeout: .seconds(10))
             }
             //waitForExpectations(timeout: 10)
 
@@ -603,7 +603,7 @@ final class LibP2PPubSubFloodsubTests {
 
         try? await app.newStream(to: Multiaddr("/ip4/192.168.1.19/tcp/51249"), forProtocol: "/ipfs/ping/1.0.0")
 
-        await messageExpectation.wait()
+        try await messageExpectation.wait(timeout: .seconds(60))
 
         let _ = try await app.pubsub.publish("Goodbyte from swift!".data(using: .utf8)!.byteArray, toTopic: topic)
 
