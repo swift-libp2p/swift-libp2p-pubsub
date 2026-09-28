@@ -652,7 +652,7 @@ open class BasePubSub: @unchecked Sendable {
         }
 
         let payload = try rpc.serializedData()
-        return putUVarInt(UInt64(payload.count)) + payload
+        return UInt64(payload.count).varIntBytes.bytes + payload
     }
 
     private func notifyHandlers(for subs: [String: Bool], peer remotePeer: PeerID) {
@@ -912,7 +912,7 @@ open class BasePubSub: @unchecked Sendable {
                 /// Serialize it
                 var payload = try rpc.serializedData()
                 /// prepend a varint length prefix
-                payload = Data(putUVarInt(UInt64(payload.count)) + payload.byteArray)
+                payload = Data(UInt64(payload.count).varIntBytes.bytes + payload.byteArray)
 
                 self.logger.trace("\(payload.asString(base: .base16))")
 
@@ -1011,7 +1011,7 @@ open class BasePubSub: @unchecked Sendable {
         }
 
         let payload = try rpc.serializedData()
-        return putUVarInt(UInt64(payload.count)) + payload
+        return UInt64(payload.count).varIntBytes.bytes + payload
     }
 
     public func generateSubPayload(forTopics topics: [String]) throws -> [UInt8] {
@@ -1025,7 +1025,7 @@ open class BasePubSub: @unchecked Sendable {
         }
 
         let payload = try rpc.serializedData()
-        return putUVarInt(UInt64(payload.count)) + payload
+        return UInt64(payload.count).varIntBytes.bytes + payload
     }
 
     /// This method simply removes any references to the subscribed topic.
