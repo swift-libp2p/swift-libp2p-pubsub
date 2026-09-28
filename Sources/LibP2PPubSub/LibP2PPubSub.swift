@@ -1014,6 +1014,40 @@ open class BasePubSub: @unchecked Sendable {
         }.hop(to: loop ?? eventLoop)
     }
 
+    /// Prepares an outbound message according to the specified signature policy
+    ///
+    /// - StrictSign: sets the `signature` over `"libp2p-pubsub:" + marshal(message without signature & key)`.
+    ///   The `key` field is only included when our public key can't be extracted from our PeerID (ex: RSA). Ed25519 / Secp256k1 PeerIDs inline the key.
+    /// - StrictNoSign: strips the `from`, `seqno`, `signature` and `key` fields as required by the spec.
+    func prepareOutboundMessage(_ msg: RPC.Message, policy: PubSub.SignaturePolicy) throws -> RPC.Message {
+        var msgToSend = msg
+        /// - Note: These are proto2 `optional` fields, assigning an empty `Data()` would mark them as present (and serialize them),
+        /// changing the bytes we sign. So we explicitly clear them instead.
+        msgToSend.clearSignature()
+        msgToSend.clearKey()
+        switch policy {
+        case .strictSign:
+            self.logger.trace("Attempting to sign message")
+            let bytes = try BasePubSub.MessagePrefix + msgToSend.serializedData()
+            msgToSend.signature = try self.peerID.signature(for: bytes)
+            if !BasePubSub.hasInlinedPublicKey(self.peerID) {
+                // pubkey.data and marshalPublicKey have an extra 0801 prepended
+                msgToSend.key = try Data(self.peerID.marshalPublicKey())
+            }
+            self.logger.trace("Signed Message: \(msgToSend)")
+        case .strictNoSign:
+            msgToSend.clearFrom()
+            msgToSend.clearSeqno()
+        }
+        return msgToSend
+    }
+
+    /// Returns true if the PeerID uses an identity multihash (the public key is embedded within the ID itself)
+    static func hasInlinedPublicKey(_ peerID: PeerID) -> Bool {
+        /// The identity multihash code is 0x00
+        peerID.id.first == 0x00
+    }
+
     public func subscribe(topic: Topic, on loop: EventLoop? = nil) -> EventLoopFuture<Void> {
         self.logger.debug("TODO::Subscribe to topic: \(topic)")
         return self.eventLoop.makeSucceededVoidFuture().hop(to: loop ?? eventLoop)
