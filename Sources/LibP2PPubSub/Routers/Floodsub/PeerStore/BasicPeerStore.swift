@@ -2,7 +2,7 @@
 //
 // This source file is part of the swift-libp2p open source project
 //
-// Copyright (c) 2022-2025 swift-libp2p project authors
+// Copyright (c) 2022-2026 swift-libp2p project authors
 // Licensed under MIT
 //
 // See LICENSE for license information
@@ -35,10 +35,9 @@ final class BasicPeerState: PeerStateProtocol, @unchecked Sendable {
     private var logger: Logger
 
     required init(eventLoop: EventLoop) {
-        print("PubSub::PeeringState Instantiated...")
         self.eventLoop = eventLoop
         self.logger = Logger(label: "com.swift.libp2p.pubsub.pstate[\(UUID().uuidString.prefix(5))]")
-        self.logger.logLevel = .trace  // LOG_LEVEL
+        self.logger.logLevel = .info  // LOG_LEVEL
         self.state = .stopped
 
         /// Initialize our caches
@@ -141,8 +140,18 @@ final class BasicPeerState: PeerStateProtocol, @unchecked Sendable {
 
     func onPeerDisconnected(_ peer: PeerID) -> EventLoopFuture<Void> {
         eventLoop.submit {
-            self.peers.removeValue(forKey: peer.b58String)
+            self._removePeer(peer.b58String)
         }
+    }
+
+    /// Removes the peer from our peers cache as well as every mesh and fanout entry
+    /// - Warning: Must be called on `self.eventLoop`
+    private func _removePeer(_ pid: PID) {
+        self.peers.removeValue(forKey: pid)
+        for topic in self.mesh.keys { self.mesh[topic]?.removeAll(where: { $0 == pid }) }
+        for topic in self.fanout.keys { self.fanout[topic]?.removeAll(where: { $0 == pid }) }
+        /// Drop fanout entries that no longer have any peers (mesh entries represent our own subscriptions, so we keep them)
+        self.fanout = self.fanout.filter { !$0.value.isEmpty }
     }
 
     /// Adds a new peer (who supports our base PubSub protocol (aka floodsub / gossipsub)) to the peers cache
@@ -164,7 +173,7 @@ final class BasicPeerState: PeerStateProtocol, @unchecked Sendable {
     /// Removes the specified peer from our peers cache
     func removePeer(_ peer: PeerID, on loop: EventLoop? = nil) -> EventLoopFuture<Void> {
         eventLoop.submit {
-            self.peers.removeValue(forKey: peer.b58String)
+            self._removePeer(peer.b58String)
         }.hop(to: loop ?? self.eventLoop)
     }
 
