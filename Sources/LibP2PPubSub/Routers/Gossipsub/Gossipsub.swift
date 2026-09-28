@@ -912,7 +912,9 @@ extension GossipSub {
             }
 
             /// Serialize it and format it (with uVarInt length prefix)
-            var wantPayload = try! rpcWant.serializedData()
+            guard var wantPayload = try? rpcWant.serializedData() else {
+                return self.eventLoop.makeFailedFuture(Errors.noRPCEncoder)
+            }
             wantPayload = UInt64(wantPayload.count).varIntBytes.bytes + wantPayload
             self.logger.debug("IWant Raw Message: \(wantPayload.asString(base: .base16))")
 
@@ -943,7 +945,9 @@ extension GossipSub {
             }
 
             /// Serialize it and format it (with uVarInt length prefix)
-            var havePayload = try! rpcHave.serializedData()
+            guard var havePayload = try? rpcHave.serializedData() else {
+                return self.eventLoop.makeFailedFuture(Errors.noRPCEncoder)
+            }
             havePayload = UInt64(havePayload.count).varIntBytes.bytes + havePayload
             self.logger.debug("IHave Raw Message: \(havePayload.asString(base: .base16))")
 
