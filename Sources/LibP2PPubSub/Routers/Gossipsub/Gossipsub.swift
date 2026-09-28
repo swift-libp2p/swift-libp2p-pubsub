@@ -848,7 +848,7 @@ extension GossipSub {
             return self.eventLoop.makeFailedFuture(Errors.invalidPeerStateConformance)
         }
         /// Ensure that the peer is in fact a full peer in our PeerState
-        return ps.isFullPeer(peer).flatMap { isFullPeer in
+        return ps.isFullPeer(peer, forTopic: topic).flatMap { isFullPeer in
             guard isFullPeer else {
                 self.logger.debug("\(peer) isn't a full peer, no pruning necessary")
                 return self.eventLoop.makeSucceededVoidFuture()
@@ -919,7 +919,7 @@ extension GossipSub {
         guard let ps = self.peerState as? PeeringState else {
             return self.eventLoop.makeFailedFuture(Errors.invalidPeerStateConformance)
         }
-        return ps.isFullPeer(peer).flatMap { isFullPeer -> EventLoopFuture<Void> in
+        return ps.isFullPeer(peer, forTopic: topic).flatMap { isFullPeer -> EventLoopFuture<Void> in
             guard !isFullPeer else {
                 self.logger.debug("\(peer) is already a full peer, no grafting necessary")
                 return self.eventLoop.makeSucceededVoidFuture()
