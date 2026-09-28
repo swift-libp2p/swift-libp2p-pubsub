@@ -445,13 +445,13 @@ public class GossipSub: BasePubSub, PubSubCore, LifecycleHandler, @unchecked Sen
         /// If we have peers that are interested in this topic, let them know that we're unsubscribing...
         self.logger.info("Unsubscribing from topic: \(topic)")
         return self.getPeersSubscribed(to: topic).flatMap { peers -> EventLoopFuture<Void> in
-            guard peers.count > 0 else { return self.eventLoop.makeSucceededVoidFuture() }
-
-            return peers.map { peer -> EventLoopFuture<Void> in
+            /// PRUNE every peer in our mesh (if any), then let our base class clean up the subscription and announce the unsubscription.
+            /// - Note: We always call super, even when our mesh is empty, otherwise the subscription would never be removed.
+            peers.map { peer -> EventLoopFuture<Void> in
                 self.logger.trace(
                     "Sending \(peer.id) a prune message before unsubscribing, because they were a full peer. ✊"
                 )
-                return self.prune(peer: peer.id, for: topic, andSend: true)
+                return self.prune(peer: peer.id, for: topic, andSend: true).recover { _ in }
             }.flatten(on: self.eventLoop).flatMap {
                 // Call unsub on our base class...
                 super.unsubscribe(topic: topic, on: loop)
