@@ -2,7 +2,7 @@
 //
 // This source file is part of the swift-libp2p open source project
 //
-// Copyright (c) 2022-2025 swift-libp2p project authors
+// Copyright (c) 2022-2026 swift-libp2p project authors
 // Licensed under MIT
 //
 // See LICENSE for license information
@@ -50,20 +50,17 @@ final class MessageCache: MessageStateProtocol, @unchecked Sendable {
 
     required init(eventLoop: EventLoop, historyWindows: Int = 3, gossipWindows: Int = 2) {
         precondition(
-            historyWindows > gossipWindows,
+            historyWindows >= gossipWindows && gossipWindows > 0,
             "Invalid parameters for message cache. GossipWindows [\(gossipWindows)] cannot be larger than historyWindows [\(historyWindows)]"
         )
-        print("PubSub::MessageChache Instantiated...")
-        self.windows = []
+        /// Start with a single (current) window so messages can be stored immediately
+        self.windows = [HistoryWindow()]
         self.eventLoop = eventLoop
         self.cacheLength = historyWindows
         self.gossipLength = gossipWindows
         self.logger = Logger(label: "com.swift.libp2p.pubsub.mcache[\(UUID().uuidString.prefix(5))]")
         self.logger.logLevel = .info  //LOG_LEVEL
         self.state = .stopped
-
-        /// Initialize our cache windows
-        let _ = self.shift()
     }
 
     func start() throws {
