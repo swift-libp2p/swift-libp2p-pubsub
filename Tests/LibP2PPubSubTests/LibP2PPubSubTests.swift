@@ -80,7 +80,7 @@ extension AsyncSemaphore {
     /// Waits for the semaphore to be signaled, throwing a `SemaphoreTimeoutError` if it isn't signaled within `timeout`.
     ///
     /// - Note: `AsyncSemaphore.wait()` doesn't respect task cancellation, so a test's `.timeLimit` trait can't interrupt it.
-    /// Use this method in tests so a missing signal fails fast (with the location of the offending wait) instead of hanging.
+    /// Use this method in tests so a missing signal fails fast (with the location of the offending wait) instead of stalling.
     func wait(timeout: Duration, sourceLocation: SourceLocation = #_sourceLocation) async throws {
         let signaled = try await withThrowingTaskGroup(of: Bool.self) { group in
             group.addTask {
