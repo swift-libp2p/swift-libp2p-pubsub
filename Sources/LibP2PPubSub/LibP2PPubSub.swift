@@ -850,23 +850,32 @@ open class BasePubSub: @unchecked Sendable {
     ///
     /// - Warning: We should discard any message that fails this check (results in a false return value)
     func passesMessageSignaturePolicy(_ message: PubSubMessage) -> Bool {
-        guard let topic = message.topicIds.first, let policy = self.topicSignaturePolicy[topic] else {
-            self.logger.warning("No Signature Policy for `\(message.topicIds.first ?? "")` Dropping Message.")
+        /// The spec defines a single `topic` per message (field 4). We reject messages claiming multiple topics,
+        /// otherwise a message could pass one topic's policy / validators and be delivered to another topic.
+        guard message.topicIds.count == 1, let topic = message.topicIds.first else {
+            self.logger.warning("Messages must specify exactly one topic (got \(message.topicIds.count)). Dropping Message.")
+            return false
+        }
+        guard let policy = self.topicSignaturePolicy[topic] else {
+            self.logger.debug("No Signature Policy for `\(topic)` Dropping Message.")
             return false
         }
         switch policy {
         case .strictNoSign:
-            guard message.signature.isEmpty && message.key.isEmpty else {
-                //guard !message.hasSignature && !message.hasKey else {
+            /// [Spec](https://github.com/libp2p/specs/blob/master/pubsub/README.md#signature-policy-options)
+            /// StrictNoSign messages MUST NOT contain the `from`, `seqno`, `signature` or `key` fields
+            guard message.signature.isEmpty && message.key.isEmpty && message.from.isEmpty && message.seqno.isEmpty
+            else {
                 self.logger.warning(
-                    "Message Signature Policy Mismatch. Current Policy == Strict No Sign and the Message is signed. Dropping Message."
+                    "Message Signature Policy Mismatch. Current Policy == Strict No Sign and the Message contains authorship fields. Dropping Message."
                 )
                 return false
             }
             return true
         case .strictSign:
-            guard !message.signature.isEmpty && !message.key.isEmpty else {
-                //guard message.hasSignature && message.hasKey else {
+            /// StrictSign messages MUST contain `from`, `seqno` and `signature`.
+            /// The `key` field is optional, it's omitted when the public key can be extracted from the `from` PeerID.
+            guard !message.signature.isEmpty && !message.from.isEmpty && !message.seqno.isEmpty else {
                 self.logger.warning(
                     "Message Signature Policy Mismatch. Current Policy == Strict Sign and the Message isn't signed. Dropping Message."
                 )
@@ -874,6 +883,48 @@ open class BasePubSub: @unchecked Sendable {
             }
             /// Validate Message Signature
             return (try? self.verifyMessageSignature(message)) == true
+        }
+    }
+
+    /// The signature policy used for a topic. Falls back to our global policy for topics we're not subscribed to (ex: publishing to a topic without subscribing)
+    func signaturePolicy(for topic: Topic) -> PubSub.SignaturePolicy {
+        self.topicSignaturePolicy[topic] ?? self.messageSignaturePolicy
+    }
+
+    /// The message ID function used for a topic. Falls back to the default ID function for the provided signature policy.
+    func messageIDFunction(for topic: Topic, policy: PubSub.SignaturePolicy) -> (PubSubMessage) -> Data {
+        self.messageIDFunctions[topic] ?? BasePubSub.defaultMessageIDFunction(for: policy)
+    }
+
+    /// The spec's default message ID is `from + seqno`, which is only unique for signed messages.
+    /// StrictNoSign messages don't contain `from` or `seqno`, so we fall back to a content based ID (SHA-256 of the data).
+    static func defaultMessageIDFunction(for policy: PubSub.SignaturePolicy) -> @Sendable (PubSubMessage) -> Data {
+        switch policy {
+        case .strictSign:
+            return PubSub.MessageIDFunction.concatFromAndSequenceFields.messageIDFunction
+        case .strictNoSign:
+            return BasePubSub.contentAddressedMessageID
+        }
+    }
+
+    /// A content based message ID (SHA-256 of the message's data field)
+    static let contentAddressedMessageID: @Sendable (PubSubMessage) -> Data = { message in
+        Data(SHA256.hash(data: message.data))
+    }
+
+    /// Resolves the message ID function to use for a subscription.
+    /// ID functions that depend on the `from` and `seqno` fields would produce the same ID for every message under StrictNoSign
+    /// (because those fields are required to be empty), so we substitute a content based ID in that case.
+    func resolveMessageIDFunction(for config: PubSub.SubscriptionConfig) -> (PubSubMessage) -> Data {
+        guard case .strictNoSign = config.signaturePolicy else { return config.messageIDFunc.messageIDFunction }
+        switch config.messageIDFunc {
+        case .concatFromAndSequenceFields, .hashSequenceNumberAndFromFields:
+            self.logger.warning(
+                "The \(config.messageIDFunc) MessageID function relies on `from` and `seqno` which are omitted under StrictNoSign. Using a content based (SHA-256) MessageID for topic `\(config.topic)` instead."
+            )
+            return BasePubSub.contentAddressedMessageID
+        default:
+            return config.messageIDFunc.messageIDFunction
         }
     }
 
