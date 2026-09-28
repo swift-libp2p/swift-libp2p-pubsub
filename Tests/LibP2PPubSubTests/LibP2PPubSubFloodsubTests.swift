@@ -28,8 +28,8 @@ final class LibP2PPubSubFloodsubTests {
     @Test(.timeLimit(.minutes(1)))
     func testLibP2PPubSub_FloodSub() async throws {
         /// Init the libp2p nodes
-        let node1 = try makeHost()
-        let node2 = try makeHost()
+        let node1 = try await makeHost()
+        let node2 = try await makeHost()
 
         /// Prepare our expectations
         let expectationNode1ReceivedNode2Subscription = AsyncSemaphore(value: 0)
@@ -41,7 +41,7 @@ final class LibP2PPubSubFloodsubTests {
         let node2Message = "pineapple"
 
         /// Node1 subscribes to topic 'fruit'
-        let subscription1 = try node1.pubsub.floodsub.subscribe(
+        let subscription1: PubSub.SubscriptionHandler = try node1.pubsub.floodsub.subscribe(
             .init(
                 topic: "fruit",
                 signaturePolicy: .strictSign,
@@ -70,7 +70,7 @@ final class LibP2PPubSubFloodsubTests {
 
         /// Node2 subcribes to topic 'fruit'
         //let subscription2 = try fSub2.subscribe(topic: "fruit")
-        let subscription2 = try node2.pubsub.floodsub.subscribe(
+        let subscription2: PubSub.SubscriptionHandler = try node2.pubsub.floodsub.subscribe(
             .init(
                 topic: "fruit",
                 signaturePolicy: .strictSign,
@@ -105,7 +105,7 @@ final class LibP2PPubSubFloodsubTests {
             try await Task.sleep(for: .seconds(1))
 
             /// Have node1 reach out to node2
-            try node1.newStream(
+            try await node1.newStream(
                 to: node2.listenAddresses.first!.encapsulate(proto: .p2p, address: node2.peerID.b58String),
                 forProtocol: "/floodsub/1.0.0"
             )
@@ -155,8 +155,8 @@ final class LibP2PPubSubFloodsubTests {
     @Test(.timeLimit(.minutes(1)))
     func testLibP2PPubSub_FloodSub_Subscriptions() async throws {
         /// Init the libp2p nodes
-        let node1 = try makeHost()
-        let node2 = try makeHost()
+        let node1 = try await makeHost()
+        let node2 = try await makeHost()
 
         /// Prepare our expectations
         let expectationNode1ReceivedNode2Subscription = AsyncSemaphore(value: 0)
@@ -177,7 +177,7 @@ final class LibP2PPubSubFloodsubTests {
 
         var node2SubscriptionCount = 0
         /// Node1 subscribes to topic 'fruit'
-        let subscription1 = try node1.pubsub.floodsub.subscribe(subscriptionConfig)
+        let subscription1: PubSub.SubscriptionHandler = try node1.pubsub.floodsub.subscribe(subscriptionConfig)
         subscription1.on = { event -> EventLoopFuture<Void> in
             switch event {
             case .newPeer(let peer):
@@ -202,7 +202,7 @@ final class LibP2PPubSubFloodsubTests {
         }
 
         /// Node2 subcribes to topic 'news'
-        //let subscription2 = try fSub2.subscribe(topic: "fruit")
+        //let subscription2: PubSub.SubscriptionHandler = try fSub2.subscribe(topic: "fruit")
         var node2MessageCount = 0
         let messagesPerBatch = 2
         let subscriptionHandler: (PubSub.SubscriptionEvent) -> EventLoopFuture<Void> = {
@@ -230,7 +230,7 @@ final class LibP2PPubSubFloodsubTests {
             return node2.eventLoopGroup.next().makeSucceededVoidFuture()
         }
 
-        var subscription2 = try node2.pubsub.floodsub.subscribe(subscriptionConfig)
+        var subscription2: PubSub.SubscriptionHandler = try node2.pubsub.floodsub.subscribe(subscriptionConfig)
         subscription2.on = subscriptionHandler
 
         /// Start the libp2p nodes
@@ -241,8 +241,8 @@ final class LibP2PPubSubFloodsubTests {
             try await Task.sleep(for: .seconds(1))
 
             /// Have node2 reach out to node1
-            //try node2.newStream(to: node1.peerInfo, forProtocol: FloodSub.multicodec)
-            try node1.newStream(to: node2.peerInfo, forProtocol: FloodSub.multicodec)
+            //try await node2.newStream(to: node1.peerInfo, forProtocol: FloodSub.multicodec)
+            try await node1.newStream(to: node2.peerInfo, forProtocol: FloodSub.multicodec)
 
             /// Publish some messages...
             let repeatedTask = node1.eventLoopGroup.next().scheduleRepeatedTask(
@@ -259,7 +259,7 @@ final class LibP2PPubSubFloodsubTests {
 
             /// Unsubscribe Node2 from our `news` subscription
             //try node2.pubsub.floodsub.unsubscribe(topic: "news").wait()
-            subscription2.unsubscribe()
+            try await subscription2.unsubscribe()
 
             //wait(for: [expectationNode1ReceivedNode2Unsubscription], timeout: 10, enforceOrder: false)
 
@@ -416,7 +416,7 @@ final class LibP2PPubSubFloodsubTests {
                 for (idx, node) in nodes.enumerated() {
                     guard nodes.count > (idx + 1) else { continue }
                     let nextPeerInfo = nodes[idx + 1].libp2p.peerInfo
-                    try? node.libp2p.newStream(
+                    try? await node.libp2p.newStream(
                         to: nextPeerInfo,
                         forProtocol: FloodSub.multicodec
                     )
@@ -431,13 +431,13 @@ final class LibP2PPubSubFloodsubTests {
                 ///  '----------------'
                 for (idx, node) in nodes.enumerated() {
                     guard nodes.count > (idx + 1) else {
-                        try node.libp2p.newStream(
+                        try await node.libp2p.newStream(
                             to: nodes[0].libp2p.peerInfo,
                             forProtocol: FloodSub.multicodec
                         )
                         continue
                     }
-                    try node.libp2p.newStream(
+                    try await node.libp2p.newStream(
                         to: nodes[idx + 1].libp2p.peerInfo,
                         forProtocol: FloodSub.multicodec
                     )
@@ -455,7 +455,7 @@ final class LibP2PPubSubFloodsubTests {
                 ///
                 for (idx, node) in nodes.enumerated() {
                     guard idx != 0 else { continue }
-                    try node.libp2p.newStream(to: nodes[0].libp2p.peerInfo, forProtocol: FloodSub.multicodec)
+                    try await node.libp2p.newStream(to: nodes[0].libp2p.peerInfo, forProtocol: FloodSub.multicodec)
                 }
 
             case .beacon2beacon:
@@ -472,7 +472,7 @@ final class LibP2PPubSubFloodsubTests {
                     guard idx != 0 else { continue }
                     if idx == 1 {
                         /// Have Node1 reach out to Node0
-                        try node.libp2p.newStream(
+                        try await node.libp2p.newStream(
                             to: nodes[0].libp2p.peerInfo,
                             forProtocol: FloodSub.multicodec
                         )
@@ -480,13 +480,13 @@ final class LibP2PPubSubFloodsubTests {
                     }
                     if idx % 2 == 0 {
                         /// If the node is an even number (have it reach out to Node0, our even beacon node)
-                        try node.libp2p.newStream(
+                        try await node.libp2p.newStream(
                             to: nodes[0].libp2p.peerInfo,
                             forProtocol: FloodSub.multicodec
                         )
                     } else {
                         /// Otherwise the node must be odd (have it reach out to Node1, our odd beacon node)
-                        try node.libp2p.newStream(
+                        try await node.libp2p.newStream(
                             to: nodes[1].libp2p.peerInfo,
                             forProtocol: FloodSub.multicodec
                         )
@@ -557,7 +557,7 @@ final class LibP2PPubSubFloodsubTests {
     /// ```
     @Test(.externalIntegrationTestsEnabled, .timeLimit(.minutes(1)))
     func testFloodsubJSInterop() async throws {
-        let app = try Application(.testing, peerID: PeerID(.Ed25519))
+        let app = try await Application.make(.testing, peerID: .ephemeral(type: .Ed25519))
         app.logger.logLevel = .trace
 
         /// Configure our networking stack!
@@ -572,7 +572,7 @@ final class LibP2PPubSubFloodsubTests {
 
         try await app.startup()
 
-        let subscription = try app.pubsub.floodsub.subscribe(
+        let subscription: PubSub.SubscriptionHandler = try app.pubsub.floodsub.subscribe(
             .init(
                 topic: topic,
                 signaturePolicy: .strictSign,
@@ -601,13 +601,13 @@ final class LibP2PPubSubFloodsubTests {
             return app.eventLoopGroup.next().makeSucceededVoidFuture()
         }
 
-        try? app.newStream(to: Multiaddr("/ip4/192.168.1.19/tcp/51249"), forProtocol: "/ipfs/ping/1.0.0")
+        try? await app.newStream(to: Multiaddr("/ip4/192.168.1.19/tcp/51249"), forProtocol: "/ipfs/ping/1.0.0")
 
         await messageExpectation.wait()
 
-        let _ = app.pubsub.publish("Goodbyte from swift!".data(using: .utf8)!.byteArray, toTopic: topic)
+        let _ = try await app.pubsub.publish("Goodbyte from swift!".data(using: .utf8)!.byteArray, toTopic: topic)
 
-        subscription.unsubscribe()
+        try await subscription.unsubscribe()
 
         print("Shutting down libp2p chat...")
         app.peers.dumpAll()
@@ -617,7 +617,7 @@ final class LibP2PPubSubFloodsubTests {
 
     @Test(.externalIntegrationTestsEnabled, .timeLimit(.minutes(1)))
     func testExternalPing() async throws {
-        let app = try Application(.testing, peerID: PeerID(.Ed25519))
+        let app = try await Application.make(.testing, peerID: .ephemeral(type: .Ed25519))
         app.logger.logLevel = .trace
 
         /// Configure our networking stack!
@@ -642,7 +642,7 @@ final class LibP2PPubSubFloodsubTests {
 
     @Test(.externalIntegrationTestsEnabled, .timeLimit(.minutes(1)))
     func testExternalFloodsubConnections() async throws {
-        let app = try Application(.testing, peerID: PeerID(.Ed25519))
+        let app = try await Application.make(.testing, peerID: .ephemeral(type: .Ed25519))
         app.logger.logLevel = .trace
 
         /// Configure our networking stack!
@@ -659,7 +659,7 @@ final class LibP2PPubSubFloodsubTests {
 
         try await app.startup()
 
-        let subscription = try app.pubsub.floodsub.subscribe(
+        let subscription: PubSub.SubscriptionHandler = try app.pubsub.floodsub.subscribe(
             .init(
                 topic: topic,
                 signaturePolicy: .strictSign,
@@ -701,9 +701,9 @@ final class LibP2PPubSubFloodsubTests {
         //await messageExpectation.wait()
         try await Task.sleep(for: .seconds(10))
 
-        let _ = app.pubsub.publish("Goodbyte from swift!".data(using: .utf8)!.byteArray, toTopic: topic)
+        let _ = try await app.pubsub.publish("Goodbyte from swift!".data(using: .utf8)!.byteArray, toTopic: topic)
 
-        subscription.unsubscribe()
+        try await subscription.unsubscribe()
 
         print("Shutting down libp2p chat...")
         app.peers.dumpAll()
