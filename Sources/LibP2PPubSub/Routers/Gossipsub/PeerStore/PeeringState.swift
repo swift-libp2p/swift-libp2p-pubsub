@@ -302,25 +302,18 @@ final class PeeringState: PeerStateProtocol, @unchecked Sendable {
     /// - Create a new entry in our Subscription Mesh for the specified topic
     /// - Bootstrap the new entry with any known peers that also subscribe to the topic
     /// Returns a list of PeerIDs that can be used to send grafting messages to
-    /// - Note: Is this correct? Do we optimistically make all these peers mesh / full peers? Or do we have to manually do it as we graft the peers...
+    /// - Note: Peers are NOT optimistically promoted into our mesh here. Known topic peers remain in our fanout set, and the router
+    /// selects up to D of them to GRAFT (which moves them into the mesh), per the spec's JOIN procedure.
     func subscribeSelf(to topic: Topic, on loop: EventLoop? = nil) -> EventLoopFuture<[PID]> {
         eventLoop.submit { () -> [PID] in
             /// Make sure we're not already subscribed...
             if let peers = self.mesh[topic] { return peers }
 
-            /// Check to see if we're aware of the topic (is it in our fanout set)
-            if let knownTopic = self.fanout.removeValue(forKey: topic) {
-                self.logger.trace("Upgrading `\(topic)` subscription from fanout to mesh")
-                /// Copy the topic/peer entry over to our subscribed mesh (are we allowed to do this? Or do we need to wait for RPC messages from peers to add them to our mesh set)
-                self.mesh[topic] = knownTopic
-                return knownTopic
-            } else {
-                self.logger.trace("Subscribing self to `\(topic)`")
-                /// This is a new topic that we're not aware of, so make an empty entry
-                self.mesh[topic] = []
-                return []
-            }
-        }
+            self.logger.trace("Subscribing self to `\(topic)`")
+            /// Create an empty mesh entry for this topic, peers get added as they're grafted
+            self.mesh[topic] = []
+            return []
+        }.hop(to: loop ?? eventLoop)
     }
     //    func subscribeSelf(to topic:Topic, on loop:EventLoop? = nil) -> EventLoopFuture<[PID]> {
     //        eventLoop.submit { () -> [PID] in
