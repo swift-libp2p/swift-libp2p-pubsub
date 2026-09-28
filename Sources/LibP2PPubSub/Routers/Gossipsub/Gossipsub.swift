@@ -664,7 +664,7 @@ extension GossipSub {
             // - TODO: Event sub, possibly remove later...
             self._eventHandler?(.inbound(.prune(remotePeer, prune.topicID)))
 
-            return self.prune(peer: remotePeer, for: prune.topicID, andSend: false)
+            return self.prune(peer: remotePeer, for: prune.topicID, andSend: false).recover { _ in }
 
         }.flatten(on: self.eventLoop)
     }
@@ -679,8 +679,12 @@ extension GossipSub {
         /// A unique set of requested Message IDs.
         let ids = Set(iWants.map { iWant in iWant.messageIds }.reduce([], +))
 
+        guard let mc = self.messageCache as? MessageCache else {
+            return self.eventLoop.makeFailedFuture(Errors.invalidMessageStateConformance)
+        }
+
         /// Ask our message cache for the message associated with each id
-        return (self.messageCache as! MessageCache).get(messageIDs: ids, on: self.eventLoop).map {
+        return mc.get(messageIDs: ids, on: self.eventLoop).map {
             $0.compactMap { msg in msg.data as? RPC.Message }
         }.always { _ in
             /// - TODO: Event sub, possibly remove later...
@@ -765,7 +769,7 @@ extension GossipSub {
         if !res.graftRejections.isEmpty || !res.iWantResponses.isEmpty || res.iWant != nil {
             guard let stream = request.connection.hasStream(forProtocol: GossipSub.multicodec, direction: .outbound)
             else {
-                self.logger.warning("Failed to find outbound gossipsub stream to peer \(request.remotePeer!)")
+                self.logger.warning("Failed to find outbound gossipsub stream to peer \(remotePeer)")
                 self.logger.warning("Skipping Control Message Response")
                 return self.eventLoop.makeSucceededVoidFuture()
             }
@@ -776,24 +780,27 @@ extension GossipSub {
             )
 
             for reject in res.graftRejections {
-                self._eventHandler?(.outbound(.prune(request.remotePeer!, reject.topicID)))
+                self._eventHandler?(.outbound(.prune(remotePeer, reject.topicID)))
             }
             if !res.iWantResponses.isEmpty {
-                self._eventHandler?(.outbound(.message(request.remotePeer!, res.iWantResponses)))
+                self._eventHandler?(.outbound(.message(remotePeer, res.iWantResponses)))
             }
             if let want = res.iWant {
-                self._eventHandler?(.outbound(.iWant(request.remotePeer!, want.messageIds)))
+                self._eventHandler?(.outbound(.iWant(remotePeer, want.messageIds)))
             }
 
             /// We need to respond to the sender with an RPC message
             var rpc = RPC()
             rpc.msgs = res.iWantResponses
             rpc.control = RPC.ControlMessage.with { ctrl in
-                ctrl.iwant = res.iWant == nil ? [] : [res.iWant!]
+                ctrl.iwant = res.iWant.map { [$0] } ?? []
                 ctrl.prune = res.graftRejections
             }
 
-            var payload = try! rpc.serializedData()
+            guard var payload = try? rpc.serializedData() else {
+                self.logger.warning("Failed to serialize Control Message Response")
+                return self.eventLoop.makeSucceededVoidFuture()
+            }
             payload = UInt64(payload.count).varIntBytes.bytes + payload
 
             /// Respond to the remote peer
@@ -823,7 +830,9 @@ extension GossipSub {
         }
 
         /// Serialize it and format it (with uVarInt length prefix)
-        var prunePayload = try! rpcPrune.serializedData()
+        guard var prunePayload = try? rpcPrune.serializedData() else {
+            return self.eventLoop.makeFailedFuture(Errors.noRPCEncoder)
+        }
         prunePayload = UInt64(prunePayload.count).varIntBytes.bytes + prunePayload
         self.logger.trace("Prune Raw Message: \(prunePayload.asString(base: .base16))")
 
@@ -881,7 +890,9 @@ extension GossipSub {
         }
 
         /// Serialize it and format it (with uVarInt length prefix)
-        var graftPayload = try! rpcGraft.serializedData()
+        guard var graftPayload = try? rpcGraft.serializedData() else {
+            return self.eventLoop.makeFailedFuture(Errors.noRPCEncoder)
+        }
         graftPayload = UInt64(graftPayload.count).varIntBytes.bytes + graftPayload
         self.logger.trace("Graft Raw Message: \(graftPayload.asString(base: .base16))")
 
@@ -918,8 +929,8 @@ extension GossipSub {
                 guard sendGraftMessage else { return self.eventLoop.makeSucceededVoidFuture() }
                 return ps.streamsFor(peer).flatMap { peerStreams in
                     self.logger.trace("Sending Graft Message to \(peer)")
-                    if includingRecentIHaves {
-                        return (self.messageCache as! MessageCache).getGossipIDs(topic: topic).flatMap { ids in
+                    if includingRecentIHaves, let mc = self.messageCache as? MessageCache {
+                        return mc.getGossipIDs(topic: topic).flatMap { ids in
                             guard !ids.isEmpty else {
                                 return self._sendGraft(peer: peerStreams, for: topic, withRecentIHaves: nil)
                             }
