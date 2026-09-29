@@ -47,7 +47,7 @@ public final class GossipSub: PubSubService, PubSubCore, LifecycleHandler, @unch
             router: GossipSubRouter(parameters: parameters),
             registerRoute: { app, handlers, handler in
                 app.group("meshsub") { $0.on("1.0.0", handlers: handlers, use: handler) }
-                /// FloodSub-only peers can reach us over `/floodsub/1.0.0`, the engine treats them accordingly
+                /// FloodSub-only peers can reach us over `/floodsub/1.0.0`, the engine handles multiple protocols
                 if floodSubCompatible {
                     app.group("floodsub") { $0.on("1.0.0", handlers: handlers, use: handler) }
                 }
