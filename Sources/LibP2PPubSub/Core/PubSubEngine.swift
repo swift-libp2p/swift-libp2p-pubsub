@@ -506,6 +506,9 @@ actor PubSubEngine {
             let id = state.messageID.id(for: message)
             guard !self.seen.contains(id) else { continue }
 
+            /// Give the router a chance to act before validation (ex: telling our mesh peers not to send us duplicates)
+            self.flush(self.router.received(message, id: id, topic: topic, from: peer))
+
             /// Validation happens off the actor (validators may be slow)
             let result = await Self.validate(
                 message,
