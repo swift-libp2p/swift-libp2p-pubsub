@@ -342,7 +342,8 @@ actor PubSubEngine {
 
     /// Writes our queued RPCs to `peer`, until the stream closes or the peer is removed
     private nonisolated func runOutbound(_ stream: LibP2PStream, to peer: PeerID) async {
-        guard let writer = await self.attachWriter(to: peer, protocolID: stream.protocol) else {
+        let outbound = stream.connection.direction == .outbound
+        guard let writer = await self.attachWriter(to: peer, protocolID: stream.protocol, outbound: outbound) else {
             self.logger.debug("Closing a redundant outbound stream to \(peer)")
             return
         }
@@ -374,7 +375,7 @@ actor PubSubEngine {
         self.peers[peer] = state
         if state.writer == nil {
             /// Until we open our own stream, assume the peer speaks the protocol it chose for its stream
-            self.router.addPeer(peer, protocolID: protocolID)
+            self.router.addPeer(peer, protocolID: protocolID, outbound: connection.direction == .outbound)
             /// Make sure we have a mirrored, write side, stream to this peer (for the same protocol)
             /// Ou peerEvent / protocol change event will check before opening another stream for the same protocol
             self.openOutboundStream(protocolID, on: connection)
@@ -392,7 +393,8 @@ actor PubSubEngine {
         }
     }
 
-    private func attachWriter(to peer: PeerID, protocolID: String) -> Writer? {
+    /// - Parameter outbound: Whether we dialed the connection this stream is on
+    private func attachWriter(to peer: PeerID, protocolID: String, outbound: Bool) -> Writer? {
         guard self.isRunning else { return nil }
         var state = self.peers[peer] ?? PeerState(bufferSize: self.configuration.outboundQueueSize)
         guard state.writer == nil else { return nil }
@@ -400,7 +402,7 @@ actor PubSubEngine {
         state.writer = token
         self.peers[peer] = state
         /// The router needs to know what protocol this peer is speaking, so pass it along...
-        self.router.addPeer(peer, protocolID: protocolID)
+        self.router.addPeer(peer, protocolID: protocolID, outbound: outbound)
         return Writer(token: token, queue: state.queue, hello: self.helloFrame())
     }
 
