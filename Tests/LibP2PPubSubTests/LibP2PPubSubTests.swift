@@ -53,7 +53,7 @@ struct LibP2PPubSubTests {
         app.muxers.use(.yamux)
         app.pubsub.use(.gossipsub)
 
-        #expect(app.pubsub.available.map({ $0.description }) == ["/meshsub/1.0.0"])
+        #expect(app.pubsub.available.map({ $0.description }) == ["/meshsub/1.2.0"])
         #expect(app.pubsub.service(for: GossipSub.self) != nil)
         #expect(app.pubsub.service(forKey: GossipSub.multicodec) != nil)
 
