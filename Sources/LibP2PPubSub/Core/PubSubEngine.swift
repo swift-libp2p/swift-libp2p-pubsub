@@ -68,12 +68,19 @@ actor PubSubEngine {
     private var sequenceNumber: UInt64
     private let clock = ContinuousClock()
 
+    /// Connects to peers the router asks for (ex: direct peers, or peers suggested via peer exchange)
+    private let dialer: (@Sendable (PeerID) async -> Void)?
+    
+    /// The peers we're currently dialing
+    private var pendingDials: Set<PeerID> = []
+
     init(
         protocolIDs: [String],
         localPeer: PeerID,
         configuration: PubSubConfiguration,
         router: any PubSubRouter,
-        logger: Logger
+        logger: Logger,
+        dialer: (@Sendable (PeerID) async -> Void)? = nil
     ) {
         precondition(!protocolIDs.isEmpty, "A PubSub engine must speak at least one protocol")
         self.protocolIDs = protocolIDs
@@ -81,6 +88,7 @@ actor PubSubEngine {
         self.configuration = configuration
         self.router = router
         self.logger = logger
+        self.dialer = dialer
         self.seen = SeenCache(ttl: configuration.seenTTL)
         /// Like go-libp2p-pubsub, sequence numbers start at the current time (in nanoseconds) and increase monotonically
         self.sequenceNumber = UInt64(max(0, Date().timeIntervalSince1970 * 1_000_000_000))
@@ -568,6 +576,22 @@ actor PubSubEngine {
 
     private func flush(_ outbox: Outbox) {
         for (peer, rpc) in outbox.rpcs { self.send(rpc, to: peer) }
+        for peer in outbox.dials { self.dial(peer) }
+    }
+
+    /// Connects to a peer the router asked for, unless we're already connected to (or dialing) it
+    private func dial(_ peer: PeerID) {
+        guard let dialer = self.dialer, peer != self.localPeer, self.peers[peer] == nil else { return }
+        guard self.pendingDials.insert(peer).inserted else { return }
+        self.logger.debug("Connecting to \(peer)")
+        Task { [weak self] in
+            await dialer(peer)
+            await self?.dialFinished(peer)
+        }
+    }
+
+    private func dialFinished(_ peer: PeerID) {
+        self.pendingDials.remove(peer)
     }
 
     private func send(_ rpc: RPC, to peer: PeerID) {
