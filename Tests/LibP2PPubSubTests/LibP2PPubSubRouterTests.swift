@@ -33,10 +33,12 @@ struct LibP2PPubSubRouterTests {
     }
 
     /// A router with `count` peers subscribed to `topic`
+    ///
+    /// - Note: Flood publishing is disabled by default here, so our own messages exercise the mesh / fanout routing.
     private static func gossipRouter(
         peers: [PeerID],
         topic: String = "fruit",
-        parameters: GossipSubParameters = .init()
+        parameters: GossipSubParameters = .init(floodPublish: false)
     ) -> GossipSubRouter {
         var router = GossipSubRouter(parameters: parameters)
         for peer in peers { router.handleSubscription(from: peer, topic: topic, subscribed: true) }
@@ -49,7 +51,7 @@ struct LibP2PPubSubRouterTests {
         let peers = try Self.peers(10)
         var router = Self.gossipRouter(peers: peers)
 
-        let outbox = router.join("fruit")
+        let outbox = router.join("fruit", now: .now)
         let mesh = try #require(router.mesh["fruit"])
         #expect(mesh.count == 6)
         #expect(mesh.isSubset(of: Set(peers)))
@@ -60,10 +62,10 @@ struct LibP2PPubSubRouterTests {
 
     @Test func testLeavePrunesTheMesh() throws {
         var router = Self.gossipRouter(peers: try Self.peers(3))
-        _ = router.join("fruit")
+        _ = router.join("fruit", now: .now)
         let mesh = try #require(router.mesh["fruit"])
 
-        let outbox = router.leave("fruit")
+        let outbox = router.leave("fruit", now: .now)
         #expect(router.mesh["fruit"] == nil)
         #expect(Set(outbox.rpcs.keys) == mesh)
         #expect(outbox.rpcs.values.allSatisfy { $0.control.prune.map(\.topicID) == ["fruit"] })
@@ -73,7 +75,7 @@ struct LibP2PPubSubRouterTests {
 
     @Test func testHeartbeatGraftsWhenBelowDLow() throws {
         var router = GossipSubRouter()
-        _ = router.join("fruit")
+        _ = router.join("fruit", now: .now)
         #expect(router.mesh["fruit"]?.isEmpty == true)
 
         /// Peers subscribe after we joined, the heartbeat grafts them (up to D)
@@ -87,11 +89,13 @@ struct LibP2PPubSubRouterTests {
     @Test func testHeartbeatPrunesWhenAboveDHigh() throws {
         let peers = try Self.peers(15)
         var router = Self.gossipRouter(peers: peers)
-        _ = router.join("fruit")
+        /// Once our mesh is full (D_hi), only outbound peers may graft onto it
+        for peer in peers { router.addPeer(peer, protocolID: GossipSub.v1_1, outbound: true) }
+        _ = router.join("fruit", now: .now)
 
         /// Peers graft themselves onto our mesh until we're over D_hi
         for peer in peers {
-            _ = router.handleControl(.with { $0.graft = [.with { $0.topicID = "fruit" }] }, from: peer, hasSeen: { _ in false })
+            _ = router.handleControl(.with { $0.graft = [.with { $0.topicID = "fruit" }] }, from: peer, hasSeen: { _ in false }, now: .now)
         }
         #expect(router.mesh["fruit"]?.count == 15)
 
@@ -105,26 +109,26 @@ struct LibP2PPubSubRouterTests {
     @Test func testGraft() throws {
         let peer = try PeerID(.Ed25519)
         var router = GossipSubRouter()
-        _ = router.join("fruit")
+        _ = router.join("fruit", now: .now)
 
         /// Grafting onto a topic we're subscribed to adds the peer to our mesh, with no response
-        let accepted = router.handleControl(.with { $0.graft = [.with { $0.topicID = "fruit" }] }, from: peer, hasSeen: { _ in false })
+        let accepted = router.handleControl(.with { $0.graft = [.with { $0.topicID = "fruit" }] }, from: peer, hasSeen: { _ in false }, now: .now)
         #expect(router.mesh["fruit"] == [peer])
         #expect(accepted.isEmpty)
 
-        /// Grafting onto a topic we're not subscribed to is answered with a PRUNE
-        let rejected = router.handleControl(.with { $0.graft = [.with { $0.topicID = "news" }] }, from: peer, hasSeen: { _ in false })
+        /// Grafting onto a topic we're not subscribed to is ignored (v1.1, a PRUNE could leak our peers via PX)
+        let ignored = router.handleControl(.with { $0.graft = [.with { $0.topicID = "news" }] }, from: peer, hasSeen: { _ in false }, now: .now)
         #expect(router.mesh["news"] == nil)
-        #expect(rejected.rpcs[peer]?.control.prune.map(\.topicID) == ["news"])
+        #expect(ignored.isEmpty)
     }
 
     @Test func testPrune() throws {
         let peer = try PeerID(.Ed25519)
         var router = Self.gossipRouter(peers: [peer])
-        _ = router.join("fruit")
+        _ = router.join("fruit", now: .now)
         #expect(router.mesh["fruit"] == [peer])
 
-        let outbox = router.handleControl(.with { $0.prune = [.with { $0.topicID = "fruit" }] }, from: peer, hasSeen: { _ in false })
+        let outbox = router.handleControl(.with { $0.prune = [.with { $0.topicID = "fruit" }] }, from: peer, hasSeen: { _ in false }, now: .now)
         #expect(router.mesh["fruit"]?.isEmpty == true)
         #expect(outbox.isEmpty)
     }
@@ -132,7 +136,7 @@ struct LibP2PPubSubRouterTests {
     @Test func testIHaveRequestsUnseenMessages() throws {
         let peer = try PeerID(.Ed25519)
         var router = GossipSubRouter()
-        _ = router.join("fruit")
+        _ = router.join("fruit", now: .now)
         let seen = Data("seen".utf8)
         let unseen = Data("unseen".utf8)
 
@@ -145,7 +149,8 @@ struct LibP2PPubSubRouterTests {
                 ]
             },
             from: peer,
-            hasSeen: { $0 == seen }
+            hasSeen: { $0 == seen },
+            now: .now
         )
         #expect(outbox.rpcs[peer]?.control.iwant.flatMap(\.messageIds) == [unseen])
     }
@@ -159,7 +164,8 @@ struct LibP2PPubSubRouterTests {
         let outbox = router.handleControl(
             .with { $0.iwant = [.with { $0.messageIds = [id, Data("unknown".utf8), id] }] },
             from: peer,
-            hasSeen: { _ in true }
+            hasSeen: { _ in true },
+            now: .now
         )
         #expect(outbox.rpcs[peer]?.msgs.map { String(decoding: $0.data, as: UTF8.self) } == ["banana"])
     }
@@ -177,7 +183,7 @@ struct LibP2PPubSubRouterTests {
         #expect(router.fanout["fruit"] == fanoutTargets)
 
         /// Once joined, messages go to our mesh
-        _ = router.join("fruit")
+        _ = router.join("fruit", now: .now)
         let mesh = try #require(router.mesh["fruit"])
         #expect(router.route(Self.message("b"), id: Data("b".utf8), topic: "fruit", from: peers[0], now: .now) == mesh)
     }
@@ -187,7 +193,7 @@ struct LibP2PPubSubRouterTests {
     /// Publishing to a topic we're not subscribed to keeps using the same fanout peers, until `fanout_ttl` after our last publish
     @Test func testFanoutLifetime() throws {
         let start = ContinuousClock.now
-        var router = Self.gossipRouter(peers: try Self.peers(10), parameters: .init(fanoutTTL: .seconds(60)))
+        var router = Self.gossipRouter(peers: try Self.peers(10), parameters: .init(fanoutTTL: .seconds(60), floodPublish: false))
 
         let first = router.route(Self.message("a"), id: Data("a".utf8), topic: "fruit", from: nil, now: start)
         let second = router.route(Self.message("b"), id: Data("b".utf8), topic: "fruit", from: nil, now: start + .seconds(30))
@@ -227,7 +233,7 @@ struct LibP2PPubSubRouterTests {
         var router = Self.gossipRouter(peers: try Self.peers(10))
         let fanout = router.route(Self.message("a"), id: Data("a".utf8), topic: "fruit", from: nil, now: .now)
 
-        let outbox = router.join("fruit")
+        let outbox = router.join("fruit", now: .now)
         #expect(router.mesh["fruit"] == fanout)
         #expect(Set(outbox.rpcs.keys) == fanout)
         #expect(router.fanout["fruit"] == nil)
@@ -236,8 +242,8 @@ struct LibP2PPubSubRouterTests {
 
     /// While our mesh is empty (ex: before our first heartbeat grafts anyone), messages go to at most `D` topic peers
     @Test func testEmptyMeshFallbackIsBounded() throws {
-        var router = GossipSubRouter()
-        _ = router.join("fruit")
+        var router = GossipSubRouter(parameters: .init(floodPublish: false))
+        _ = router.join("fruit", now: .now)
         for peer in try Self.peers(10) { router.handleSubscription(from: peer, topic: "fruit", subscribed: true) }
 
         let degree = min(GossipSubParameters().meshDegree, 10)
@@ -253,7 +259,7 @@ struct LibP2PPubSubRouterTests {
     @Test func testGossipDegree() throws {
         let peers = try Self.peers(20)
         var router = Self.gossipRouter(peers: peers, parameters: .init(gossipDegree: 4))
-        _ = router.join("fruit")
+        _ = router.join("fruit", now: .now)
         let mesh = try #require(router.mesh["fruit"])
         _ = router.route(Self.message("a"), id: Data("a".utf8), topic: "fruit", from: nil, now: .now)
 
@@ -280,8 +286,8 @@ struct LibP2PPubSubRouterTests {
         let floodPeer = try PeerID(.Ed25519)
         let gossipPeers = try Self.peers(8)
         var router = Self.gossipRouter(peers: gossipPeers + [floodPeer])
-        router.addPeer(floodPeer, protocolID: FloodSub.multicodec)
-        for peer in gossipPeers { router.addPeer(peer, protocolID: GossipSub.multicodec) }
+        router.addPeer(floodPeer, protocolID: FloodSub.multicodec, outbound: false)
+        for peer in gossipPeers { router.addPeer(peer, protocolID: GossipSub.multicodec, outbound: false) }
 
         /// Our fanout excludes the FloodSub peer, but it's still sent the message
         let fanoutTargets = router.route(Self.message("a"), id: Data("a".utf8), topic: "fruit", from: nil, now: .now)
@@ -289,7 +295,7 @@ struct LibP2PPubSubRouterTests {
         #expect(fanoutTargets.contains(floodPeer))
 
         /// JOIN never grafts the FloodSub peer
-        let joined = router.join("fruit")
+        let joined = router.join("fruit", now: .now)
         #expect(router.mesh["fruit"]?.contains(floodPeer) == false)
         #expect(joined.rpcs[floodPeer] == nil)
 
@@ -304,7 +310,7 @@ struct LibP2PPubSubRouterTests {
         }
 
         /// Control messages from a FloodSub peer are ignored
-        let reply = router.handleControl(.with { $0.graft = [.with { $0.topicID = "fruit" }] }, from: floodPeer, hasSeen: { _ in false })
+        let reply = router.handleControl(.with { $0.graft = [.with { $0.topicID = "fruit" }] }, from: floodPeer, hasSeen: { _ in false }, now: .now)
         #expect(reply.isEmpty)
         #expect(router.mesh["fruit"]?.contains(floodPeer) == false)
     }
@@ -312,7 +318,7 @@ struct LibP2PPubSubRouterTests {
     @Test func testHeartbeatGossipsToPeersOutsideTheMesh() throws {
         let peers = try Self.peers(10)
         var router = Self.gossipRouter(peers: peers)
-        _ = router.join("fruit")
+        _ = router.join("fruit", now: .now)
         let mesh = try #require(router.mesh["fruit"])
 
         let id = Data("banana".utf8)
@@ -326,7 +332,7 @@ struct LibP2PPubSubRouterTests {
         /// Nothing to gossip means no (empty) IHAVEs
         let quiet = GossipSubRouter(parameters: .init())
         var quietRouter = quiet
-        _ = quietRouter.join("fruit")
+        _ = quietRouter.join("fruit", now: .now)
         #expect(quietRouter.heartbeat(now: .now).isEmpty)
     }
 
