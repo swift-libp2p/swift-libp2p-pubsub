@@ -26,6 +26,9 @@ public enum PubSubError: Error, Equatable, Sendable {
     /// Every subscription to a topic must use the same signature policy
     case conflictingSignaturePolicy(topic: String)
 
+    /// Our ``PubSubConfiguration/subscriptionFilter`` rejected subscribing to this topic
+    case topicNotAllowed(topic: String)
+
 }
 
 /// The common sub routines that every PubSub router depends on.
@@ -171,6 +174,9 @@ actor PubSubEngine {
 
     private func register(_ config: TopicConfiguration, key: RegistrationKey, registration: Registration) throws {
         guard !config.topic.isEmpty else { throw PubSubError.invalidTopic }
+        guard self.configuration.subscriptionFilter.allows(config.topic) else {
+            throw PubSubError.topicNotAllowed(topic: config.topic)
+        }
         if let existing = self.topics[config.topic] {
             guard existing.signaturePolicy == config.signaturePolicy else {
                 throw PubSubError.conflictingSignaturePolicy(topic: config.topic)
@@ -411,7 +417,14 @@ actor PubSubEngine {
             return
         }
 
-        for subscription in rpc.subscriptions where subscription.hasTopicID {
+        /// Like go-libp2p-pubsub, an RPC announcing more subscriptions than our filter allows is ignored entirely
+        let filter = self.configuration.subscriptionFilter
+        if let limit = filter.maxSubscriptionsPerRPC, rpc.subscriptions.count > limit {
+            self.logger.warning("Dropping an RPC from \(peer) announcing \(rpc.subscriptions.count) subscriptions (limit \(limit))")
+            return
+        }
+
+        for subscription in rpc.subscriptions where subscription.hasTopicID && filter.allows(subscription.topicID) {
             self.router.handleSubscription(from: peer, topic: subscription.topicID, subscribed: subscription.subscribe)
             if subscription.subscribe, let state = self.topics[subscription.topicID] {
                 self.deliver(.newPeer(peer), to: state)
