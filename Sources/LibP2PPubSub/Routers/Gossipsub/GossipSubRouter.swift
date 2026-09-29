@@ -17,8 +17,14 @@ import LibP2P
 /// GossipSub routing ([v1.0 spec](https://github.com/libp2p/specs/blob/master/pubsub/gossipsub/gossipsub-v1.0.md)).
 ///
 /// For each topic we're subscribed to, we try to maintain a mesh of `D` peers (kept between `D_lo` and `D_hi` by our heartbeat)
-/// to which we forward full messages. The rest of the topic's peers learn about recent messages via IHAVE gossip, and can
-/// request any they missed with IWANT messages.
+/// to which we forward full messages.
+///
+/// For topics we publish to without subscribing, we remember a fanout set of `D` peers (for `fanout_ttl` after our last publish).
+/// A random selection of `D_lazy` of the remaining topic peers learn about recent messages via IHAVE gossip each heartbeat,
+/// and can request any messages they may have missed with IWANT messages.
+///
+/// Peers that only speak FloodSub receive every message on the topics they're subscribed to, but are never grafted,
+/// added to a fanout, or sent gossip messages.
 struct GossipSubRouter: PubSubRouter {
 
     /// Our GossipSub specific params
@@ -29,6 +35,15 @@ struct GossipSubRouter: PubSubRouter {
 
     /// The peers we've grafted into each topic we're subscribed to
     private(set) var mesh: [String: Set<PeerID>] = [:]
+
+    /// The peers we publish to on each topic we're not subscribed to
+    private(set) var fanout: [String: Set<PeerID>] = [:]
+
+    /// When we last published to each of our fanout topics
+    private(set) var lastPublished: [String: Instant] = [:]
+
+    /// The peers that only speak FloodSub
+    private(set) var floodSubPeers: Set<PeerID> = []
 
     /// Recently seen messages (used for IWANT responses and IHAVE gossip)
     private(set) var messageCache: MessageCache
@@ -46,16 +61,38 @@ struct GossipSubRouter: PubSubRouter {
         self.membership[topic]
     }
 
-    /// Removes the peer from our membership (fanout) and mesh if necessary
+    /// The peers subscribed to this topic that speak GossipSub (and can therefore be grafted and gossiped to)
+    private func gossipPeers(subscribedTo topic: String) -> Set<PeerID> {
+        self.membership[topic].subtracting(self.floodSubPeers)
+    }
+
+    /// Record whether the peer speaks GossipSub or only FloodSub
+    mutating func addPeer(_ peer: PeerID, protocolID: String) {
+        guard protocolID == FloodSub.multicodec else {
+            self.floodSubPeers.remove(peer)
+            return
+        }
+        self.floodSubPeers.insert(peer)
+        /// FloodSub peers can't take part in our meshes or fanouts
+        for topic in self.mesh.keys { self.mesh[topic]?.remove(peer) }
+        for topic in self.fanout.keys { self.fanout[topic]?.remove(peer) }
+    }
+
+    /// Removes the peer from our membership, meshes and fanouts
     mutating func removePeer(_ peer: PeerID) {
         self.membership.remove(peer)
+        self.floodSubPeers.remove(peer)
         for topic in self.mesh.keys { self.mesh[topic]?.remove(peer) }
+        for topic in self.fanout.keys { self.fanout[topic]?.remove(peer) }
     }
 
     /// Update the peers subscription status for the specified topic
     mutating func handleSubscription(from peer: PeerID, topic: String, subscribed: Bool) {
         self.membership.update(peer, topic: topic, subscribed: subscribed)
-        if !subscribed { self.mesh[topic]?.remove(peer) }
+        if !subscribed {
+            self.mesh[topic]?.remove(peer)
+            self.fanout[topic]?.remove(peer)
+        }
     }
 
     /// We're joining the topic, select up to `D` of the topic's peers and GRAFT them into our new mesh
@@ -63,8 +100,13 @@ struct GossipSubRouter: PubSubRouter {
         var outbox = Outbox()
         /// ensure we're not already part of this topic
         guard self.mesh[topic] == nil else { return outbox }
-        /// grab a random meshDegree set of peers from our membership
-        let selected = Set(self.membership[topic].shuffled().prefix(self.parameters.meshDegree))
+        let candidates = self.gossipPeers(subscribedTo: topic)
+        /// start with the fanout peers we've been publishing to (if they're still subscribed), we're no longer a fanout publisher
+        var selected = (self.fanout.removeValue(forKey: topic) ?? []).intersection(candidates)
+        self.lastPublished.removeValue(forKey: topic)
+        /// top up with a random selection of the topic's other peers, until we have `D`
+        let missing = max(0, self.parameters.meshDegree - selected.count)
+        selected.formUnion(candidates.subtracting(selected).shuffled().prefix(missing))
         /// add them to the topics mesh
         self.mesh[topic] = selected
         /// send each of the selected peers a graft message
@@ -86,25 +128,47 @@ struct GossipSubRouter: PubSubRouter {
         return outbox
     }
 
-    /// Return the set of peers that we should forward this message to
-    mutating func route(_ message: RPC.Message, id: Data, topic: String, from source: PeerID?) -> Set<PeerID> {
+    /// Return the set of peers that we should send this message to
+    mutating func route(
+        _ message: RPC.Message,
+        id: Data,
+        topic: String,
+        from source: PeerID?,
+        now: Instant
+    ) -> Set<PeerID> {
         /// record the message in our message cache
         self.messageCache.put(id, message: message, topic: topic)
 
-        /// Topics we're not subscribed to have no mesh, so (like v1.1's flood publishing) we send to every known topic peer.
-        /// We do the same while our mesh is still empty, ex: when publishing before our first heartbeat grafted any peers,
-        /// rather than silently dropping the message.
-        guard let mesh = self.mesh[topic], !mesh.isEmpty else {
-            /// No mesh peers, forward to every peer that we know of subscribed to the topic
-            return self.membership[topic]
+        /// FloodSub peers receive every message on the topics they're subscribed to
+        let floodSubTargets = self.membership[topic].intersection(self.floodSubPeers)
+
+        /// Topics we're subscribed to are sent to our mesh
+        if let mesh = self.mesh[topic] {
+            guard mesh.isEmpty else { return mesh.union(floodSubTargets) }
+            /// Our mesh doesn't have any peers yet (ex: we published before our first heartbeat grafted any), so rather than
+            /// silently dropping the message, send it to up to `D` random topic peers
+            let fallback = self.gossipPeers(subscribedTo: topic).shuffled().prefix(self.parameters.meshDegree)
+            return floodSubTargets.union(fallback)
         }
-        /// return just our mesh peers
-        return mesh
+
+        /// We only ever forward messages for topics we're subscribed to, so this must be one of our own
+        guard source == nil else { return floodSubTargets }
+
+        /// Topics we're not subscribed to are sent to the topic's fanout, selecting `D` peers for it if it's empty
+        var fanout = (self.fanout[topic] ?? []).intersection(self.gossipPeers(subscribedTo: topic))
+        if fanout.isEmpty {
+            fanout = Set(self.gossipPeers(subscribedTo: topic).shuffled().prefix(self.parameters.meshDegree))
+        }
+        self.fanout[topic] = fanout
+        self.lastPublished[topic] = now
+        return fanout.union(floodSubTargets)
     }
 
     /// Handle the inbound control message
     mutating func handleControl(_ control: RPC.ControlMessage, from peer: PeerID, hasSeen: (Data) -> Bool) -> Outbox {
         var outbox = Outbox()
+        /// FloodSub peers don't speak GossipSub's control protocol
+        guard !self.floodSubPeers.contains(peer) else { return outbox }
         var reply = RPC.ControlMessage()
 
         /// GRAFT: add the peer to our mesh if we're subscribed to the topic, no response means acceptance.
@@ -153,14 +217,14 @@ struct GossipSubRouter: PubSubRouter {
         return outbox
     }
 
-    mutating func heartbeat() -> Outbox {
+    mutating func heartbeat(now: Instant) -> Outbox {
         var outbox = Outbox()
 
         /// Perform our mesh maintenance
         for (topic, mesh) in self.mesh {
             if mesh.count < self.parameters.meshDegreeLow {
                 /// We need more peers, graft `D - |mesh|` random topic peers
-                let candidates = self.membership[topic].subtracting(mesh)
+                let candidates = self.gossipPeers(subscribedTo: topic).subtracting(mesh)
                 for peer in candidates.shuffled().prefix(self.parameters.meshDegree - mesh.count) {
                     /// add the peers to our mesh (rejections will be handled via prunes)
                     self.mesh[topic]?.insert(peer)
@@ -178,8 +242,25 @@ struct GossipSubRouter: PubSubRouter {
             }
         }
 
-        /// Gossip emission, advertise recent messages to the topic peers outside of our mesh
-        for (topic, mesh) in self.mesh {
+        /// Perform our fanout maintenance
+        for (topic, fanout) in self.fanout {
+            /// forget fanout topics we haven't published to within the last `fanout_ttl`
+            guard let last = self.lastPublished[topic], last.duration(to: now) < self.parameters.fanoutTTL else {
+                self.fanout.removeValue(forKey: topic)
+                self.lastPublished.removeValue(forKey: topic)
+                continue
+            }
+            /// drop peers that are no longer subscribed, and top up to `D` with a random selection of the topic's other peers
+            let candidates = self.gossipPeers(subscribedTo: topic)
+            var kept = fanout.intersection(candidates)
+            let missing = max(0, self.parameters.meshDegree - kept.count)
+            kept.formUnion(candidates.subtracting(kept).shuffled().prefix(missing))
+            self.fanout[topic] = kept
+        }
+
+        /// Gossip emission, advertise recent messages (for our mesh and fanout topics) to `D_lazy` random topic peers
+        /// outside of the topic's mesh / fanout
+        for topic in Set(self.mesh.keys).union(self.fanout.keys) {
             let ids = self.messageCache.gossipIDs(for: topic)
             guard !ids.isEmpty else { continue }
             /// create the ihave with the message IDs
@@ -187,8 +268,10 @@ struct GossipSubRouter: PubSubRouter {
                 $0.topicID = topic
                 $0.messageIds = ids
             }
-            /// for each peer subscribed to this topic, not in our mesh
-            for peer in self.membership[topic].subtracting(mesh) {
+            /// the peers that already receive full messages for this topic don't need gossip
+            let fullPeers = self.mesh[topic] ?? self.fanout[topic] ?? []
+            let candidates = self.gossipPeers(subscribedTo: topic).subtracting(fullPeers)
+            for peer in candidates.shuffled().prefix(self.parameters.gossipDegree) {
                 /// send the iHave control frame
                 outbox.send(control: .with { $0.ihave = [iHave] }, to: peer)
             }
