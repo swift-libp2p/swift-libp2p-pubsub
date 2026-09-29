@@ -121,7 +121,7 @@ final class LibP2PPubSubRegressionTests {
         router.handleSubscription(from: otherPeer, topic: "news", subscribed: true)
 
         /// JOIN grafts the known topic peers
-        let outbox = router.join("fruit")
+        let outbox = router.join("fruit", now: .now)
         #expect(router.mesh["fruit"] == [meshPeer])
         #expect(outbox.rpcs[meshPeer]?.control.graft.map(\.topicID) == ["fruit"])
 
