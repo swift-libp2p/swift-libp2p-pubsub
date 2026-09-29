@@ -256,6 +256,15 @@ struct LibP2PPubSubEngineTests {
                 await Self.eventually { await node1.pubsub.gossipsub.peers(subscribedTo: "fruit") == [node2.peerID] }
             )
 
+            /// Both nodes speak GossipSub v1.2, so that's what they negotiate
+            #expect(
+                await Self.eventually {
+                    await node1.pubsub.gossipsub.engine.inspectRouter { router in
+                        (router as? GossipSubRouter)?.peers[node2.peerID]?.protocolKind == .gossipSubV1_2
+                    }
+                }
+            )
+
             /// node1 isn't subscribed, but can still publish to the topic
             try await node1.pubsub.gossipsub.publish(Data("banana".utf8), to: "fruit")
 
