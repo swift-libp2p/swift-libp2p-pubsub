@@ -58,8 +58,15 @@ struct Outbox {
         )
     }
 
-    mutating func prune(_ topic: String, to peer: PeerID) {
-        let prune = RPC.ControlPrune.with { $0.topicID = topic }
+    /// - Parameters:
+    ///   - backoff: GossipSub v1.1, how long the peer should wait before grafting us again (sent in whole seconds)
+    ///   - peers: GossipSub v1.1 peer exchange, other peers subscribed to the topic the pruned peer might graft instead
+    mutating func prune(_ topic: String, to peer: PeerID, backoff: Duration? = nil, peers: [PeerID] = []) {
+        let prune = RPC.ControlPrune.with { prune in
+            prune.topicID = topic
+            if let backoff { prune.backoff = UInt64(max(0, backoff.components.seconds)) }
+            prune.peers = peers.map { exchanged in .with { $0.peerID = Data(exchanged.id) } }
+        }
         self.send(
             control: .with { ctrlMsg in
                 ctrlMsg.prune = [prune]
