@@ -40,10 +40,13 @@ protocol PubSubRouter: Sendable {
     mutating func handleSubscription(from peer: PeerID, topic: String, subscribed: Bool)
 
     /// We subscribed to a topic
-    mutating func join(_ topic: String) -> Outbox
+    mutating func join(_ topic: String, now: Instant) -> Outbox
 
     /// We unsubscribed from a topic
-    mutating func leave(_ topic: String) -> Outbox
+    mutating func leave(_ topic: String, now: Instant) -> Outbox
+
+    /// A new (unseen) message, that conforms to its topic's signature policy, has arrived and is about to be validated
+    mutating func received(_ message: RPC.Message, id: Data, topic: String, from source: PeerID) -> Outbox
 
     /// Returns the peers a (new, valid) message should be sent to.
     ///
@@ -55,11 +58,18 @@ protocol PubSubRouter: Sendable {
     mutating func handleControl(
         _ control: RPC.ControlMessage,
         from peer: PeerID,
-        hasSeen: (Data) -> Bool
+        hasSeen: (Data) -> Bool,
+        now: Instant
     ) -> Outbox
 
     /// Periodic maintenance, performed once per heartbeat interval
     mutating func heartbeat(now: Instant) -> Outbox
+}
+
+extension PubSubRouter {
+    mutating func received(_ message: RPC.Message, id: Data, topic: String, from source: PeerID) -> Outbox {
+        Outbox()
+    }
 }
 
 /// Tracks which topics each peer is subscribed to
