@@ -23,8 +23,13 @@ import LibP2P
 /// The engine takes care of everything routers have in common, framing, signing, signature policies,
 /// validation, duplicate suppression, local delivery and subscription announcements.
 protocol PubSubRouter: Sendable {
+    typealias Instant = ContinuousClock.Instant
+
     /// The peers we know that are subscribed to `topic`
     func peers(subscribedTo topic: String) -> Set<PeerID>
+
+    /// A peer we're exchanging RPCs with, over the negotiated `protocolID` (ex: `/meshsub/1.0.0` or `/floodsub/1.0.0`)
+    mutating func addPeer(_ peer: PeerID, protocolID: String)
 
     /// Forgets everything about a peer that has disconnected
     mutating func removePeer(_ peer: PeerID)
@@ -42,7 +47,7 @@ protocol PubSubRouter: Sendable {
     ///
     /// - Parameter source: The peer that forwarded the message to us, or `nil` if we're publishing it.
     /// - Note: The engine never sends a message back to its `source` or to its author, so routers don't need to exclude them.
-    mutating func route(_ message: RPC.Message, id: Data, topic: String, from source: PeerID?) -> Set<PeerID>
+    mutating func route(_ message: RPC.Message, id: Data, topic: String, from source: PeerID?, now: Instant) -> Set<PeerID>
 
     /// Handles the control messages (GRAFT, PRUNE, IHAVE, IWANT, ...) in an inbound RPC
     mutating func handleControl(
@@ -52,7 +57,7 @@ protocol PubSubRouter: Sendable {
     ) -> Outbox
 
     /// Periodic maintenance, performed once per heartbeat interval
-    mutating func heartbeat() -> Outbox
+    mutating func heartbeat(now: Instant) -> Outbox
 }
 
 /// Tracks which topics each peer is subscribed to
