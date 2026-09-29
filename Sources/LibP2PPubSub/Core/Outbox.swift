@@ -21,7 +21,14 @@ import LibP2P
 struct Outbox {
     private(set) var rpcs: [PeerID: RPC] = [:]
 
-    var isEmpty: Bool { self.rpcs.isEmpty }
+    /// Peers the router would like us to connect to (ex: direct peers we've lost, or peers learnt via PX)
+    private(set) var dials: Set<PeerID> = []
+
+    var isEmpty: Bool { self.rpcs.isEmpty && self.dials.isEmpty }
+
+    mutating func dial(_ peer: PeerID) {
+        self.dials.insert(peer)
+    }
 
     mutating func send(_ rpc: RPC, to peer: PeerID) {
         if var existing = self.rpcs[peer] {
@@ -63,6 +70,7 @@ struct Outbox {
 
     mutating func merge(_ other: Outbox) {
         for (peer, rpc) in other.rpcs { self.send(rpc, to: peer) }
+        self.dials.formUnion(other.dials)
     }
 }
 
