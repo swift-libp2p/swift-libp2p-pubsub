@@ -57,6 +57,8 @@ public class PubSubService: @unchecked Sendable {
     /// - Parameters:
     ///   - protocolIDs: The protocols we speak, in order of preference. We open our stream to each peer using the most
     ///     preferred protocol it supports.
+    ///   - knownAddresses: Addresses to dial when the router asks us to connect to these peers (ex: direct peers). Other
+    ///     peers are dialed using the addresses in our peer store.
     ///   - registerRoute: Registers a route for each of `protocolIDs`, all handled by the provided handler.
     init(
         application: Application,
@@ -64,17 +66,36 @@ public class PubSubService: @unchecked Sendable {
         name: String,
         configuration: PubSubConfiguration,
         router: any PubSubRouter,
+        knownAddresses: [PeerID: Multiaddr] = [:],
         registerRoute: RouteRegistration
     ) {
         var logger = Logger(label: "\(name)[\(application.peerID.shortDescription)]")
         logger.logLevel = application.logger.logLevel
+
+        /// Connects to a peer the router asked for (ex: a direct peer, or one suggested via peer exchange).
+        /// We connect by opening an identify stream, once the peer's identified our discovery opens a stream using the best
+        /// protocol it supports, exactly as it does for any other peer.
+        let dialLogger = logger
+        let dialer: @Sendable (PeerID) async -> Void = { [weak application] peer in
+            guard let application else { return }
+            do {
+                if let address = knownAddresses[peer] {
+                    try await application.newStream(to: address, forProtocol: "/ipfs/id/1.0.0")
+                } else {
+                    try await application.newStream(to: peer, forProtocol: "/ipfs/id/1.0.0")
+                }
+            } catch {
+                dialLogger.debug("Failed to connect to \(peer): \(error)")
+            }
+        }
 
         let engine = PubSubEngine(
             protocolIDs: protocolIDs,
             localPeer: application.peerID,
             configuration: configuration,
             router: router,
-            logger: logger
+            logger: logger,
+            dialer: dialer
         )
         self.engine = engine
         self.eventLoop = application.eventLoopGroup.next()
