@@ -134,7 +134,7 @@ actor PubSubEngine {
         for peer in Array(self.peers.keys) { self.removePeer(peer) }
         for (topic, state) in self.topics {
             for registration in state.registrations.values { registration.finish() }
-            _ = self.router.leave(topic)
+            _ = self.router.leave(topic, now: self.clock.now)
         }
         self.topics.removeAll()
     }
@@ -212,7 +212,7 @@ actor PubSubEngine {
             )
             self.logger.debug("Subscribed to `\(config.topic)`")
             // notify our router of the join
-            var outbox = self.router.join(config.topic)
+            var outbox = self.router.join(config.topic, now: self.clock.now)
             self.announce(config.topic, subscribed: true, into: &outbox)
             self.flush(outbox)
         }
@@ -227,7 +227,7 @@ actor PubSubEngine {
         self.topics.removeValue(forKey: topic)
         self.logger.debug("Unsubscribed from `\(topic)`")
         // notify our router of the unsub
-        var outbox = self.router.leave(topic)
+        var outbox = self.router.leave(topic, now: self.clock.now)
         self.announce(topic, subscribed: false, into: &outbox)
         self.flush(outbox)
     }
@@ -464,7 +464,12 @@ actor PubSubEngine {
         }
 
         if rpc.hasControl {
-            let replies = self.router.handleControl(rpc.control, from: peer, hasSeen: { self.seen.contains($0) })
+            let replies = self.router.handleControl(
+                rpc.control,
+                from: peer,
+                hasSeen: { self.seen.contains($0) },
+                now: self.clock.now
+            )
             self.flush(replies)
         }
 
