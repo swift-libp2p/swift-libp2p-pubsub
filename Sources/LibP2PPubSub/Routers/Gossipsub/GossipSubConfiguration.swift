@@ -33,12 +33,27 @@ public struct GossipSubParameters: Sendable {
     /// `mcache_gossip`, the number of heartbeats a message is advertised for via IHAVEs.
     public var historyGossip: Int
 
+    /// `D_lazy`, the number of peers (outside of a topic's mesh and fanout) we gossip IHAVEs to each heartbeat.
+    public var gossipDegree: Int
+
+    /// `fanout_ttl`, how long we remember the fanout peers for a topic we publish to without subscribing, after our last publish.
+    public var fanoutTTL: Duration
+
+    /// Whether we also speak `/floodsub/1.0.0`, so FloodSub-only peers can join our topics.
+    ///
+    /// FloodSub peers receive every message on the topics they're subscribed to, but are never grafted into a mesh or sent gossip.
+    /// - Note: Don't enable this if the same `Application` also runs a ``FloodSub`` router, both will try to claim the `/floodsub/1.0.0` route.
+    public var floodSubCompatible: Bool
+
     public init(
         meshDegree: Int = 6,
         meshDegreeLow: Int = 5,
         meshDegreeHigh: Int = 12,
         historyLength: Int = 5,
-        historyGossip: Int = 3
+        historyGossip: Int = 3,
+        gossipDegree: Int = 6,
+        fanoutTTL: Duration = .seconds(60),
+        floodSubCompatible: Bool = true
     ) {
         precondition(
             0 < meshDegreeLow && meshDegreeLow <= meshDegree && meshDegree <= meshDegreeHigh,
@@ -53,5 +68,10 @@ public struct GossipSubParameters: Sendable {
         self.meshDegreeHigh = meshDegreeHigh
         self.historyLength = historyLength
         self.historyGossip = historyGossip
+        precondition(gossipDegree >= 0, "GossipSub's gossip degree (D_lazy) can't be negative")
+        precondition(fanoutTTL > .zero, "GossipSub's fanout TTL must be greater than zero")
+        self.gossipDegree = gossipDegree
+        self.fanoutTTL = fanoutTTL
+        self.floodSubCompatible = floodSubCompatible
     }
 }
