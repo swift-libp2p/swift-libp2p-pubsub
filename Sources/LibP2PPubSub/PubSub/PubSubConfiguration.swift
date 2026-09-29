@@ -42,6 +42,9 @@ public struct PubSubConfiguration: Sendable {
     /// Whether the messages we publish are also delivered to our own subscriptions.
     public var emitSelf: Bool
 
+    /// Restricts the topics we subscribe to, and the topic subscriptions we track for our peers.
+    public var subscriptionFilter: SubscriptionFilter
+
     public init(
         heartbeatInterval: Duration = .seconds(1),
         seenTTL: Duration = .seconds(120),
@@ -50,7 +53,8 @@ public struct PubSubConfiguration: Sendable {
         subscriptionBufferSize: Int = 32,
         defaultSignaturePolicy: PubSub.SignaturePolicy = .strictSign,
         validationTimeout: Duration? = nil,
-        emitSelf: Bool = false
+        emitSelf: Bool = false,
+        subscriptionFilter: SubscriptionFilter = .allowAll
     ) {
         precondition(heartbeatInterval > .zero, "The heartbeat interval must be greater than zero")
         precondition(maxMessageSize > 0, "The max message size must be greater than zero")
@@ -64,5 +68,6 @@ public struct PubSubConfiguration: Sendable {
         self.defaultSignaturePolicy = defaultSignaturePolicy
         self.validationTimeout = validationTimeout
         self.emitSelf = emitSelf
+        self.subscriptionFilter = subscriptionFilter
     }
 }
