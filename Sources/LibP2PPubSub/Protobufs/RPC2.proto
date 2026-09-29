@@ -38,6 +38,7 @@ message RPC {
         repeated ControlIWant iwant = 2;
         repeated ControlGraft graft = 3;
         repeated ControlPrune prune = 4;
+        repeated ControlIDontWant idontwant = 5;
     }
 
     message ControlIHave {
@@ -46,6 +47,9 @@ message RPC {
     }
 
     message ControlIWant { repeated bytes messageIDs = 1; }
+
+    // GossipSub v1.2
+    message ControlIDontWant { repeated bytes messageIDs = 1; }
 
     message ControlGraft { optional string topicID = 1; }
 
