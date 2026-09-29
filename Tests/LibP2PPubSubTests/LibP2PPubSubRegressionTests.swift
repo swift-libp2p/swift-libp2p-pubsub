@@ -39,238 +39,207 @@ final class LibP2PPubSubRegressionTests {
         }
     }
 
-    /// Creates an (unstarted) floodsub enabled Application with an Ed25519 PeerID
-    private func makeFloodsubApp() async throws -> Application {
-        let app = try await Application.make(.testing, peerID: .ephemeral(type: .Ed25519))
-        app.logger.logLevel = .info
-        app.pubsub.use(.floodsub)
-        return app
+    private static func seqno(_ value: UInt64) -> Data {
+        withUnsafeBytes(of: value.bigEndian) { Data($0) }
     }
 
     // MARK: - GossipSub MessageCache
 
     /// mcache_len = 5, mcache_gossip = 3. Messages should be gossiped for 3 shifts and retrievable for 5.
-    @Test(.timeLimit(.minutes(1)))
-    func testMessageCacheWindows() async throws {
-        let elg = MultiThreadedEventLoopGroup(numberOfThreads: 1)
-        let mcache = MessageCache(eventLoop: elg.next(), historyWindows: 5, gossipWindows: 3)
+    @Test func testMessageCacheWindows() {
+        var mcache = MessageCache(historyLength: 5, gossipLength: 3)
         let msg = Self.makeMessage(data: "banana")
         let id = Data("id-1".utf8)
 
-        /// Storing immediately after init must not crash (previously `windows[0] =` on an empty array)
-        let stored = try await mcache.put(messages: [id: msg], on: nil).get()
-        #expect(stored.count == 1)
+        /// Storing immediately after init must work (previously `windows[0] =` on an empty array)
+        let stored = mcache.put(id, message: msg, topic: "fruit")
+        #expect(stored)
         /// Duplicate puts are rejected
-        #expect(try await mcache.put(messages: [id: msg], on: nil).get().isEmpty)
+        let storedAgain = mcache.put(id, message: msg, topic: "fruit")
+        #expect(storedAgain == false)
 
-        #expect(try await mcache.getGossipIDs(topic: "fruit").get() == [id])
-        #expect(try await mcache.getGossipIDs(topic: "other").get().isEmpty)
+        #expect(mcache.gossipIDs(for: "fruit") == [id])
+        #expect(mcache.gossipIDs(for: "other").isEmpty)
 
         /// Each heartbeat shifts the cache by one window
-        for _ in 0..<2 { try await mcache.heartbeat().get() }
-        #expect(try await mcache.getGossipIDs(topic: "fruit").get() == [id], "Still inside the gossip window")
+        for _ in 0..<2 { mcache.shift() }
+        #expect(mcache.gossipIDs(for: "fruit") == [id], "Still inside the gossip window")
 
-        try await mcache.heartbeat().get()
-        #expect(try await mcache.getGossipIDs(topic: "fruit").get().isEmpty, "Outside of the gossip window")
-        #expect(try await mcache.get(messageID: id).get() != nil, "Still inside the history window")
+        mcache.shift()
+        #expect(mcache.gossipIDs(for: "fruit").isEmpty, "Outside of the gossip window")
+        #expect(mcache.get(id) != nil, "Still inside the history window")
 
-        for _ in 0..<2 { try await mcache.heartbeat().get() }
-        #expect(try await mcache.get(messageID: id).get() == nil, "Evicted after mcache_len heartbeats")
-
-        try await elg.shutdownGracefully()
+        for _ in 0..<2 { mcache.shift() }
+        #expect(mcache.get(id) == nil, "Evicted after mcache_len shifts")
+        #expect(mcache.count == 0)
     }
 
-    // MARK: - Floodsub BasicMessageCache
+    /// The GossipSub router shifts its message cache on every heartbeat (it used to shift every other heartbeat)
+    @Test func testGossipsubShiftsEveryHeartbeat() {
+        var router = GossipSubRouter(parameters: .init(historyLength: 2, historyGossip: 1))
+        let msg = Self.makeMessage(data: "banana")
+        let id = Data("id-1".utf8)
+        _ = router.route(msg, id: id, topic: "fruit", from: nil)
 
-    /// Messages stored via the batch `put(messages:)` API must expire (previously they were never evicted)
-    @Test(.timeLimit(.minutes(1)))
-    func testBasicMessageCacheBatchPutExpires() async throws {
-        let elg = MultiThreadedEventLoopGroup(numberOfThreads: 1)
-        let cache = BasicMessageCache(eventLoop: elg.next(), timeToLiveInSeconds: 0.05)
+        _ = router.heartbeat()
+        #expect(router.messageCache.contains(id))
+        _ = router.heartbeat()
+        #expect(router.messageCache.contains(id) == false)
+    }
+
+    // MARK: - Seen Cache
+
+    /// Seen message IDs expire `ttl` after they were first seen (re-seeing a message doesn't extend its lifetime)
+    @Test func testSeenCacheExpiry() {
+        var seen = SeenCache(ttl: .seconds(120))
+        let start = ContinuousClock.now
         let id = Data("id-1".utf8)
 
-        _ = try await cache.put(messages: [id: Self.makeMessage(data: "banana")], on: nil).get()
-        #expect(try await cache.exists(messageID: id).get())
+        let inserted = seen.insert(id, now: start)
+        #expect(inserted)
+        let insertedAgain = seen.insert(id, now: start + .seconds(60))
+        #expect(insertedAgain == false)
 
-        try await Task.sleep(for: .milliseconds(100))
-        try await cache.heartbeat().get()
-        #expect(try await cache.exists(messageID: id).get() == false)
+        seen.prune(now: start + .seconds(119))
+        #expect(seen.contains(id))
 
-        try await elg.shutdownGracefully()
+        seen.prune(now: start + .seconds(120))
+        #expect(seen.contains(id) == false)
+        #expect(seen.count == 0)
     }
 
-    // MARK: - Peer State
+    // MARK: - Routers
 
-    /// Disconnected peers must be removed from our mesh & fanout, otherwise they inflate our mesh degree
-    @Test(.timeLimit(.minutes(1)))
-    func testGossipsubPeeringStateDisconnectCleansMesh() async throws {
-        let elg = MultiThreadedEventLoopGroup(numberOfThreads: 1)
-        let ps = PeeringState(eventLoop: elg.next())
-        try ps.start()
+    /// Disconnected peers must be removed from our mesh & topic membership, otherwise they inflate our mesh degree
+    @Test func testGossipsubRouterDisconnectCleansMesh() throws {
+        var router = GossipSubRouter()
         let meshPeer = try PeerID(.Ed25519)
-        let fanoutPeer = try PeerID(.Ed25519)
+        let otherPeer = try PeerID(.Ed25519)
 
-        _ = try await ps.addNewPeer(meshPeer, on: nil).get()
-        _ = try await ps.addNewPeer(fanoutPeer, on: nil).get()
-        _ = try await ps.subscribeSelf(to: "fruit", on: nil).get()
-        try await ps.update(subscriptions: ["fruit": true, "news": true], for: meshPeer, on: nil).get()
-        try await ps.update(subscriptions: ["news": true], for: fanoutPeer, on: nil).get()
+        router.handleSubscription(from: meshPeer, topic: "fruit", subscribed: true)
+        router.handleSubscription(from: meshPeer, topic: "news", subscribed: true)
+        router.handleSubscription(from: otherPeer, topic: "news", subscribed: true)
 
-        /// Subscribing no longer auto promotes known peers into the mesh, they need to be grafted
-        #expect(try await ps.meshDegrees().get() == ["fruit": 0])
-        try await ps.makeFullPeer(meshPeer, for: "fruit").get()
-        #expect(try await ps.meshDegrees().get() == ["fruit": 1])
+        /// JOIN grafts the known topic peers
+        let outbox = router.join("fruit")
+        #expect(router.mesh["fruit"] == [meshPeer])
+        #expect(outbox.rpcs[meshPeer]?.control.graft.map(\.topicID) == ["fruit"])
 
-        /// isFullPeer is topic specific and doesn't throw for unknown peers
-        #expect(try await ps.isFullPeer(meshPeer, forTopic: "fruit").get())
-        #expect(try await ps.isFullPeer(meshPeer, forTopic: "news").get() == false)
-        #expect(try await ps.isFullPeer(try PeerID(.Ed25519), forTopic: "fruit").get() == false)
+        /// A duplicate subscription announcement doesn't change anything
+        router.handleSubscription(from: meshPeer, topic: "fruit", subscribed: true)
+        #expect(router.mesh["fruit"] == [meshPeer])
 
-        /// A duplicate subscription announcement shouldn't place a mesh peer into fanout as well
-        try await ps.update(subscriptions: ["fruit": true], for: meshPeer, on: nil).get()
-        #expect(try await ps.metaPeerIDs().get()["fruit"]?.isEmpty ?? true)
-
-        try await ps.onPeerDisconnected(meshPeer).get()
-        #expect(try await ps.meshDegrees().get() == ["fruit": 0])
-        #expect(try await ps.metaPeerIDs().get()["news"]?.map { $0.b58String } == [fanoutPeer.b58String])
-
-        try await ps.onPeerDisconnected(fanoutPeer).get()
-        #expect(try await ps.metaPeerIDs().get()["news"] == nil)
-
-        try await elg.shutdownGracefully()
+        router.removePeer(meshPeer)
+        #expect(router.mesh["fruit"]?.isEmpty == true)
+        #expect(router.peers(subscribedTo: "fruit").isEmpty)
+        #expect(router.peers(subscribedTo: "news") == [otherPeer])
     }
 
-    /// Floodsub floods to every known topic peer (even for topics we're not subscribed to) and cleans up on disconnect
-    @Test(.timeLimit(.minutes(1)))
-    func testFloodsubPeerStateFloodTargetsAndDisconnect() async throws {
-        let elg = MultiThreadedEventLoopGroup(numberOfThreads: 1)
-        let ps = BasicPeerState(eventLoop: elg.next())
+    /// Floodsub floods to every known topic peer (even for topics we're not subscribed to) and forgets disconnected peers
+    @Test func testFloodsubRouterFloodTargetsAndDisconnect() throws {
+        var router = FloodSubRouter()
         let peer = try PeerID(.Ed25519)
+        router.handleSubscription(from: peer, topic: "news", subscribed: true)
 
-        _ = try await ps.addNewPeer(peer, on: nil).get()
-        try await ps.update(subscriptions: ["news": true], for: peer, on: nil).get()
+        #expect(router.route(Self.makeMessage(data: "banana"), id: Data(), topic: "news", from: nil) == [peer])
 
-        /// We're not subscribed to `news`, but we should still be able to publish to the peers that are
-        let targets: [PubSub.Subscriber] = try await ps.peersSubscribedTo(topic: "news", on: nil).get()
-        #expect(targets.map { $0.id } == [peer])
-
-        /// Unsubscribing before `start()` should still clean up our mesh entry
-        _ = try await ps.subscribeSelf(to: "fruit", on: nil).get()
-        _ = try await ps.unsubscribeSelf(from: "fruit", on: nil).get()
-        #expect(try await ps.topicSubscriptions().get().isEmpty)
-
-        try await ps.onPeerDisconnected(peer).get()
-        let remaining: [PubSub.Subscriber] = try await ps.peersSubscribedTo(topic: "news", on: nil).get()
-        #expect(remaining.isEmpty)
-
-        try await elg.shutdownGracefully()
+        router.removePeer(peer)
+        #expect(router.route(Self.makeMessage(data: "banana"), id: Data(), topic: "news", from: nil).isEmpty)
     }
 
     // MARK: - Signing & Signature Policies
 
     /// Ed25519 PeerIDs inline their public key, so (like go / rust) we omit the `key` field and the receiver extracts the key from `from`
-    @Test(.timeLimit(.minutes(1)))
-    func testStrictSignWithInlinedKey() async throws {
-        let app = try await makeFloodsubApp()
-        let fsub = app.pubsub.floodsub
-        fsub.assignSignaturePolicy(for: "fruit", policy: .strictSign)
-
-        let msg = Self.makeMessage(
-            data: "banana",
-            from: Data(fsub.peerID.id),
-            seqno: Data(fsub.nextMessageSequenceNumber())
-        )
-        let signed = try fsub.prepareOutboundMessage(msg, policy: .strictSign)
+    @Test func testStrictSignWithInlinedKey() throws {
+        let author = try PeerID(.Ed25519)
+        let msg = Self.makeMessage(data: "banana", from: Data(author.id), seqno: Self.seqno(1))
+        let signed = try MessageSigning.prepare(msg, policy: .strictSign, signer: author)
 
         #expect(!signed.signature.isEmpty)
         #expect(signed.hasKey == false, "Ed25519 keys are inlined in the PeerID, the key field should be omitted")
-        #expect(fsub.passesMessageSignaturePolicy(signed))
+        #expect(MessageSigning.check(signed, against: .strictSign) == nil)
 
         /// Tampering with the payload invalidates the signature
         var tampered = signed
         tampered.data = Data("pineapple".utf8)
-        #expect(fsub.passesMessageSignaturePolicy(tampered) == false)
+        #expect(MessageSigning.check(tampered, against: .strictSign) == .invalidSignature)
 
         /// An unsigned message is rejected under StrictSign
-        #expect(fsub.passesMessageSignaturePolicy(msg) == false)
-
-        try await app.asyncShutdown()
+        #expect(MessageSigning.check(msg, against: .strictSign) == .missingSignature)
     }
 
     /// When the `key` field is present it must belong to the `from` PeerID
-    @Test(.timeLimit(.minutes(1)))
-    func testStrictSignRejectsMismatchedKey() async throws {
-        let app = try await makeFloodsubApp()
-        let fsub = app.pubsub.floodsub
-        fsub.assignSignaturePolicy(for: "fruit", policy: .strictSign)
+    @Test func testStrictSignRejectsMismatchedKey() throws {
+        let author = try PeerID(.Ed25519)
+        let msg = Self.makeMessage(data: "banana", from: Data(author.id), seqno: Self.seqno(1))
 
-        let msg = Self.makeMessage(
-            data: "banana",
-            from: Data(fsub.peerID.id),
-            seqno: Data(fsub.nextMessageSequenceNumber())
-        )
-
-        /// Including our own (matching) key is allowed
-        var withKey = try fsub.prepareOutboundMessage(msg, policy: .strictSign)
-        withKey.key = try Data(fsub.peerID.marshalPublicKey())
-        #expect(fsub.passesMessageSignaturePolicy(withKey))
+        /// Including the author's (matching) key is allowed
+        var withKey = try MessageSigning.prepare(msg, policy: .strictSign, signer: author)
+        withKey.key = try Data(author.marshalPublicKey())
+        #expect(MessageSigning.check(withKey, against: .strictSign) == nil)
 
         /// Someone else's key is not
         var wrongKey = withKey
         wrongKey.key = try Data(PeerID(.Ed25519).marshalPublicKey())
-        #expect(fsub.passesMessageSignaturePolicy(wrongKey) == false)
-
-        try await app.asyncShutdown()
+        #expect(MessageSigning.check(wrongKey, against: .strictSign) == .invalidSignature)
     }
 
     /// StrictNoSign messages must omit (and receivers must reject) the `from`, `seqno`, `signature` and `key` fields
-    @Test(.timeLimit(.minutes(1)))
-    func testStrictNoSign() async throws {
-        let app = try await makeFloodsubApp()
-        let fsub = app.pubsub.floodsub
-        fsub.assignSignaturePolicy(for: "fruit", policy: .strictNoSign)
-
-        let msg = Self.makeMessage(
-            data: "banana",
-            from: Data(fsub.peerID.id),
-            seqno: Data(fsub.nextMessageSequenceNumber())
-        )
-        let prepared = try fsub.prepareOutboundMessage(msg, policy: .strictNoSign)
+    @Test func testStrictNoSign() throws {
+        let author = try PeerID(.Ed25519)
+        let msg = Self.makeMessage(data: "banana", from: Data(author.id), seqno: Self.seqno(1))
+        let prepared = try MessageSigning.prepare(msg, policy: .strictNoSign, signer: author)
         #expect(!prepared.hasFrom && !prepared.hasSeqno && !prepared.hasSignature && !prepared.hasKey)
-        #expect(fsub.passesMessageSignaturePolicy(prepared))
+        #expect(MessageSigning.check(prepared, against: .strictNoSign) == nil)
 
         /// Messages containing authorship info are rejected
-        #expect(fsub.passesMessageSignaturePolicy(msg) == false)
+        #expect(MessageSigning.check(msg, against: .strictNoSign) == .unexpectedAuthorship)
 
-        /// The from+seqno ID functions would collide under StrictNoSign, so a content based ID is substituted
-        let idFunc = fsub.resolveMessageIDFunction(
-            for: .init(
+        /// The from+seqno ID strategies would collide under StrictNoSign, so a content based ID is substituted
+        let config = TopicConfiguration(
+            .init(
                 topic: "fruit",
                 signaturePolicy: .strictNoSign,
                 validator: .acceptAll,
                 messageIDFunc: .concatFromAndSequenceFields
             )
         )
-        let other = try fsub.prepareOutboundMessage(Self.makeMessage(data: "pineapple"), policy: .strictNoSign)
-        #expect(!idFunc(prepared).isEmpty)
-        #expect(idFunc(prepared) != idFunc(other))
+        let other = try MessageSigning.prepare(
+            Self.makeMessage(data: "pineapple"),
+            policy: .strictNoSign,
+            signer: author
+        )
+        let idStrategy = config.effectiveMessageID
+        #expect(!idStrategy.id(for: prepared).isEmpty)
+        #expect(idStrategy.id(for: prepared) != idStrategy.id(for: other))
+    }
 
-        try await app.asyncShutdown()
+    /// The core `Hasher` based message ID functions differ between processes, so they're mapped to stable SHA-256 IDs
+    @Test func testLegacyMessageIDFunctionsAreStable() throws {
+        let msg = Self.makeMessage(data: "banana", from: Data("author".utf8), seqno: Self.seqno(7))
+        for function in [PubSub.MessageIDFunction.hashSequenceNumberAndFromFields, .hashEverything] {
+            let config = TopicConfiguration(
+                .init(topic: "fruit", signaturePolicy: .strictSign, validator: .acceptAll, messageIDFunc: function)
+            )
+            let id = config.effectiveMessageID.id(for: msg)
+            #expect(id.count == 32)
+            #expect(id == config.effectiveMessageID.id(for: msg))
+        }
     }
 
     /// A message claiming multiple topics could bypass a topic's policy / validators, so it's rejected outright
-    @Test(.timeLimit(.minutes(1)))
-    func testMultiTopicMessagesAreRejected() async throws {
-        let app = try await makeFloodsubApp()
-        let fsub = app.pubsub.floodsub
-        fsub.assignSignaturePolicy(for: "fruit", policy: .strictNoSign)
-        fsub.assignSignaturePolicy(for: "victim", policy: .strictNoSign)
-
-        #expect(fsub.passesMessageSignaturePolicy(Self.makeMessage(data: "banana", topics: ["fruit"])))
-        #expect(fsub.passesMessageSignaturePolicy(Self.makeMessage(data: "banana", topics: ["fruit", "victim"])) == false)
-        #expect(fsub.passesMessageSignaturePolicy(Self.makeMessage(data: "banana", topics: [])) == false)
-
-        try await app.asyncShutdown()
+    @Test func testMultiTopicMessagesAreRejected() {
+        #expect(
+            MessageSigning.check(Self.makeMessage(data: "banana", topics: ["fruit"]), against: .strictNoSign) == nil
+        )
+        #expect(
+            MessageSigning.check(Self.makeMessage(data: "banana", topics: ["fruit", "victim"]), against: .strictNoSign)
+                == .invalidTopicCount(2)
+        )
+        #expect(
+            MessageSigning.check(Self.makeMessage(data: "banana", topics: []), against: .strictNoSign)
+                == .invalidTopicCount(0)
+        )
     }
 
     // MARK: - GossipSub Subscriptions
@@ -285,20 +254,31 @@ final class LibP2PPubSubRegressionTests {
 
         let gsub = app.pubsub.gossipsub
         let _: PubSub.SubscriptionHandler = try gsub.subscribe(
-            .init(topic: "fruit", signaturePolicy: .strictSign, validator: .acceptAll, messageIDFunc: .concatFromAndSequenceFields)
+            .init(
+                topic: "fruit",
+                signaturePolicy: .strictSign,
+                validator: .acceptAll,
+                messageIDFunc: .concatFromAndSequenceFields
+            )
         )
-        try await Task.sleep(for: .milliseconds(100))
         #expect(try await gsub.getTopics().contains("fruit"))
 
         try await gsub.unsubscribe(topic: "fruit", on: nil).get()
         #expect(try await gsub.getTopics().contains("fruit") == false)
-        #expect(try await gsub.eventLoop.submit { gsub.subscriptions["fruit"] == nil }.get())
+        let hasMesh = await gsub.engine.inspectRouter { router in
+            (router as? GossipSubRouter)?.mesh["fruit"] != nil
+        }
+        #expect(hasMesh == false)
 
         /// Resubscribing works
         let _: PubSub.SubscriptionHandler = try gsub.subscribe(
-            .init(topic: "fruit", signaturePolicy: .strictSign, validator: .acceptAll, messageIDFunc: .concatFromAndSequenceFields)
+            .init(
+                topic: "fruit",
+                signaturePolicy: .strictSign,
+                validator: .acceptAll,
+                messageIDFunc: .concatFromAndSequenceFields
+            )
         )
-        try await Task.sleep(for: .milliseconds(100))
         #expect(try await gsub.getTopics().contains("fruit"))
 
         try await app.asyncShutdown()
@@ -376,7 +356,7 @@ final class LibP2PPubSubRegressionTests {
 }
 
 extension Sequence {
-    fileprivate func asyncMap<T>(_ transform: (Element) async throws -> T) async rethrows -> [T] {
+    func asyncMap<T>(_ transform: (Element) async throws -> T) async rethrows -> [T] {
         var results: [T] = []
         for element in self { results.append(try await transform(element)) }
         return results
