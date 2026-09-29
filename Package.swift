@@ -46,9 +46,8 @@ let package = Package(
                 .product(name: "LibP2P", package: "swift-libp2p"),
                 .product(name: "Crypto", package: "swift-crypto"),
             ],
-            resources: [
-                .copy("Protobufs/RPC.proto"),
-                .copy("Protobufs/RPC2.proto"),
+            exclude: [
+                "Protobufs/RPC2.proto"
             ]
         ),
         .testTarget(
