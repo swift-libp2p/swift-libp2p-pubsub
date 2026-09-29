@@ -39,6 +39,9 @@ struct MessageCache {
     /// `windows[0]` holds the IDs of the most recent messages
     private var windows: [[Data]]
 
+    /// How many times we've sent each cached message to each peer in response to its IWANTs
+    private var transmissions: [Data: [PeerID: Int]] = [:]
+
     init(historyLength: Int, gossipLength: Int) {
         precondition(
             0 < gossipLength && gossipLength <= historyLength,
@@ -69,6 +72,14 @@ struct MessageCache {
         self.entries[id]?.message
     }
 
+    /// Gets a message for `peer` (in response to its IWANT), along with how many times it's now been sent to that peer
+    mutating func get(_ id: Data, for peer: PeerID) -> (message: RPC.Message, transmissions: Int)? {
+        guard let entry = self.entries[id] else { return nil }
+        let count = self.transmissions[id, default: [:]][peer, default: 0] + 1
+        self.transmissions[id, default: [:]][peer] = count
+        return (entry.message, count)
+    }
+
     /// The IDs of the messages on `topic` within the gossip window, newest first
     func gossipIDs(for topic: String) -> [Data] {
         self.windows.prefix(self.gossipLength).flatMap { window in
@@ -82,6 +93,7 @@ struct MessageCache {
         while self.windows.count > self.historyLength {
             for id in self.windows.removeLast() {
                 self.entries.removeValue(forKey: id)
+                self.transmissions.removeValue(forKey: id)
             }
         }
     }
