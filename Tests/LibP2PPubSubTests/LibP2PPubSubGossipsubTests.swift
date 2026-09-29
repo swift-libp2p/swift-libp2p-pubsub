@@ -134,9 +134,7 @@ final class LibP2PPubSubGossipsubTests {
             /// Dump the current state of our PeerStore
             node1.peers.dumpAll()
 
-            node1.pubsub.gossipsub.dumpEventList()
 
-            node2.pubsub.gossipsub.dumpEventList()
         } catch {
             Issue.record(error)
         }
@@ -538,7 +536,6 @@ final class LibP2PPubSubGossipsubTests {
             try await Task.sleep(for: .seconds(2))
 
             nodes.first!.libp2p.peers.dumpAll()
-            nodes.first!.libp2p.pubsub.gossipsub.dumpEventList()
 
             /// Close all connections
             for node in nodes {
@@ -646,7 +643,6 @@ final class LibP2PPubSubGossipsubTests {
         print("Shutting down libp2p chat...")
         app.peers.dumpAll()
 
-        app.pubsub.gossipsub.dumpEventList()
 
         try await app.asyncShutdown()
     }
