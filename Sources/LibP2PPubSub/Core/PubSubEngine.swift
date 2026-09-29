@@ -64,6 +64,7 @@ actor PubSubEngine {
     private var topics: [String: TopicState] = [:]
     private var peers: [PeerID: PeerState] = [:]
     private var heartbeatTask: Task<Void, Never>?
+    private var discoveryTask: Task<Void, Never>?
     private var sequenceNumber: UInt64
     private let clock = ContinuousClock()
 
@@ -86,7 +87,11 @@ actor PubSubEngine {
 
     // MARK: - Lifecycle
 
-    func start() {
+    /// Starts the heartbeat and, if provided, starts discovering peers via `peerEvents`
+    ///
+    /// - Parameter peerEvents: Our application's `remotePeerProtocolChange` events (`app.events.subscribe(to:)`).
+    ///   Consuming them from a single stream means we handle peers in the order they're identified.
+    func start(peerEvents: AsyncStream<EventBus.EventEmitter>? = nil) {
         guard !self.isRunning else { return }
         self.isRunning = true
         let interval = self.configuration.heartbeatInterval
@@ -97,6 +102,18 @@ actor PubSubEngine {
                 await self.heartbeat()
             }
         }
+        if let peerEvents {
+            self.discoveryTask = Task { [weak self] in
+                for await event in peerEvents {
+                    guard case .remotePeerProtocolChange(let change) = event else { continue }
+                    await self?.peerProtocolsChanged(
+                        change.peer,
+                        protocols: change.protocols.map(\.stringValue),
+                        connection: change.connection
+                    )
+                }
+            }
+        }
     }
 
     /// Stops the heartbeat, closes our outbound streams and ends every subscription
@@ -105,9 +122,13 @@ actor PubSubEngine {
         self.isRunning = false
 
         let heartbeat = self.heartbeatTask
+        let discovery = self.discoveryTask
         self.heartbeatTask = nil
+        self.discoveryTask = nil
         heartbeat?.cancel()
+        discovery?.cancel()
         await heartbeat?.value
+        await discovery?.value
 
         for peer in Array(self.peers.keys) { self.removePeer(peer) }
         for (topic, state) in self.topics {
@@ -265,21 +286,22 @@ actor PubSubEngine {
 
     // MARK: - Peers & Streams
 
-    /// Called when a peer supporting our protocol connects
-    func peerConnected(_ peer: PeerID, connection: Connection) {
+    /// Called when a peers supported protocols change (ex: once it's been identified).
+    ///
+    /// If the peer speaks one of our protocols, and we don't have an open stream for it yet, we open a new stream
+    /// directed at the most preferred protocol we share in common.
+    /// - Note: A peer's streams (rather than connection events) determine when we forget about it, see ``inboundStreamClosed(_:)``
+    ///   and ``detachWriter(from:token:)``.
+    func peerProtocolsChanged(_ peer: PeerID, protocols: [String], connection: Connection) {
         guard self.isRunning, peer != self.localPeer else { return }
+        /// protocolIDs is in preferred order (so first returns our most preferred shared protocol)
+        guard let protocolID = self.protocolIDs.first(where: protocols.contains) else { return }
         let state = self.peers[peer] ?? PeerState(bufferSize: self.configuration.outboundQueueSize)
         self.peers[peer] = state
-        if state.writer == nil { self.openOutboundStream(on: connection) }
+        if state.writer == nil { self.openOutboundStream(protocolID, on: connection) }
     }
 
-    /// Called when a peer disconnects
-    func peerDisconnected(_ peer: PeerID) {
-        guard self.peers[peer] != nil else { return }
-        self.removePeer(peer)
-    }
-
-    /// Drives a stream negotiated for our protocol, for as long as it's open
+    /// Drives a stream negotiated for one of our protocols, for as long as it's open
     nonisolated func run(_ stream: LibP2PStream) async {
         guard let peer = stream.remotePeer else {
             self.logger.warning("Ignoring a `\(self.protocolID)` stream without an authenticated remote peer")
