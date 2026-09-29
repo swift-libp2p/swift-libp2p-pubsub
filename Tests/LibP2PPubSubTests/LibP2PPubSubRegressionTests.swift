@@ -79,11 +79,11 @@ final class LibP2PPubSubRegressionTests {
         var router = GossipSubRouter(parameters: .init(historyLength: 2, historyGossip: 1))
         let msg = Self.makeMessage(data: "banana")
         let id = Data("id-1".utf8)
-        _ = router.route(msg, id: id, topic: "fruit", from: nil)
+        _ = router.route(msg, id: id, topic: "fruit", from: nil, now: .now)
 
-        _ = router.heartbeat()
+        _ = router.heartbeat(now: .now)
         #expect(router.messageCache.contains(id))
-        _ = router.heartbeat()
+        _ = router.heartbeat(now: .now)
         #expect(router.messageCache.contains(id) == false)
     }
 
@@ -141,10 +141,10 @@ final class LibP2PPubSubRegressionTests {
         let peer = try PeerID(.Ed25519)
         router.handleSubscription(from: peer, topic: "news", subscribed: true)
 
-        #expect(router.route(Self.makeMessage(data: "banana"), id: Data(), topic: "news", from: nil) == [peer])
+        #expect(router.route(Self.makeMessage(data: "banana"), id: Data(), topic: "news", from: nil, now: .now) == [peer])
 
         router.removePeer(peer)
-        #expect(router.route(Self.makeMessage(data: "banana"), id: Data(), topic: "news", from: nil).isEmpty)
+        #expect(router.route(Self.makeMessage(data: "banana"), id: Data(), topic: "news", from: nil, now: .now).isEmpty)
     }
 
     // MARK: - Signing & Signature Policies
