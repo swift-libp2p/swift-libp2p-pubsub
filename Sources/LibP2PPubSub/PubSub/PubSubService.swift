@@ -44,6 +44,9 @@ public class PubSubService: @unchecked Sendable {
     /// The most recently issued engine operation, each new operation waits for it to complete
     private let lastOperation: NIOLockedValueBox<Task<Void, Never>?>
 
+    /// Subscribes to our application's peer protocol changes (filtering peers for those who speak our protocols)
+    private let peerEvents: @Sendable () -> AsyncStream<EventBus.EventEmitter>?
+
     /// Registers a router's protocol route, ex: `app.group("floodsub") { $0.on("1.0.0", handlers: handlers, use: handler) }`
     typealias RouteRegistration = (
         _ application: Application,
@@ -51,9 +54,13 @@ public class PubSubService: @unchecked Sendable {
         _ handler: @escaping @Sendable (LibP2PStream) async throws -> Void
     ) -> Void
 
+    /// - Parameters:
+    ///   - protocolIDs: The protocols we speak, in order of preference. We open our stream to each peer using the most
+    ///     preferred protocol it supports.
+    ///   - registerRoute: Registers a route for each of `protocolIDs`, all handled by the provided handler.
     init(
         application: Application,
-        protocolID: String,
+        protocolIDs: [String],
         name: String,
         configuration: PubSubConfiguration,
         router: any PubSubRouter,
@@ -63,7 +70,7 @@ public class PubSubService: @unchecked Sendable {
         logger.logLevel = application.logger.logLevel
 
         let engine = PubSubEngine(
-            protocolID: protocolID,
+            protocolIDs: protocolIDs,
             localPeer: application.peerID,
             configuration: configuration,
             router: router,
@@ -80,23 +87,11 @@ public class PubSubService: @unchecked Sendable {
             await engine?.run(stream)
         }
 
-        /// Learn about peers that support our protocol as they connect and disconnect.
-        ///
-        /// - Note: swift-libp2p has no way to unregister a topology handler, so we register once, weakly, and the engine
-        /// ignores events while it's stopped.
-        application.topology.register(
-            TopologyRegistration(
-                protocol: protocolID,
-                handler: TopologyHandler(
-                    onConnect: { [weak engine] peer, connection in
-                        Task { await engine?.peerConnected(peer, connection: connection) }
-                    },
-                    onDisconnect: { [weak engine] peer in
-                        Task { await engine?.peerDisconnected(peer) }
-                    }
-                )
-            )
-        )
+        /// Learn about peers that support our protocols as they're identified. The engine consumes these events from a
+        /// single stream (so they're handled in order) for as long as it's running, and the subscription ends when it stops.
+        self.peerEvents = { [weak application] in
+            application?.events.subscribe(to: [.remotePeerProtocolChange])
+        }
     }
 
     // MARK: - Async API
@@ -130,7 +125,8 @@ public class PubSubService: @unchecked Sendable {
 
     public func start() throws {
         self.lifecycleState.withLockedValue { $0 = .started }
-        self.schedule { await $0.start() }
+        let peerEvents = self.peerEvents
+        self.schedule { await $0.start(peerEvents: peerEvents()) }
     }
 
     public func stop() throws {
@@ -194,7 +190,8 @@ public class PubSubService: @unchecked Sendable {
 
     public func didBootAsync(_ application: Application) async throws {
         self.lifecycleState.withLockedValue { $0 = .started }
-        _ = await self.schedule { await $0.start() }.result
+        let peerEvents = self.peerEvents
+        _ = await self.schedule { await $0.start(peerEvents: peerEvents()) }.result
     }
 
     public func shutdown(_ application: Application) {
