@@ -192,6 +192,51 @@ struct LibP2PPubSubEngineTests {
         }
     }
 
+    // MARK: - Subscription filter
+
+    /// We can't subscribe to topics our filter doesn't allow, and we don't track peers' subscriptions to them either
+    @Test func testSubscriptionFilterAllowlist() async throws {
+        let engine = try Self.makeEngine(configuration: .init(subscriptionFilter: .allowlist(["fruit"])))
+        await engine.start()
+
+        await #expect(throws: PubSubError.topicNotAllowed(topic: "news")) {
+            _ = try await engine.subscribe(TopicConfiguration(topic: "news"))
+        }
+
+        let peer = try PeerID(.Ed25519)
+        let rpc = RPC.with {
+            $0.subscriptions = [
+                .with { $0.topicID = "fruit"; $0.subscribe = true },
+                .with { $0.topicID = "news"; $0.subscribe = true },
+            ]
+        }
+        await engine.handle(try Self.frame(rpc), from: peer)
+        #expect(await engine.peers(subscribedTo: "fruit") == [peer])
+        #expect(await engine.peers(subscribedTo: "news").isEmpty)
+
+        await engine.stop()
+    }
+
+    /// An RPC announcing more subscriptions than our filter allows is ignored entirely (including its messages)
+    @Test func testSubscriptionFilterLimit() async throws {
+        let engine = try Self.makeEngine(
+            configuration: .init(subscriptionFilter: SubscriptionFilter(maxSubscriptionsPerRPC: 2) { _ in true })
+        )
+        await engine.start()
+        let subscription = try await engine.subscribe(TopicConfiguration(topic: "fruit"))
+
+        let author = try PeerID(.Ed25519)
+        let rpc = try RPC.with {
+            $0.subscriptions = ["a", "b", "fruit"].map { topic in .with { $0.topicID = topic; $0.subscribe = true } }
+            $0.msgs = [try Self.signedMessage("banana", by: author, seqno: 1)]
+        }
+        await engine.handle(try Self.frame(rpc), from: author)
+
+        #expect(await engine.peers(subscribedTo: "fruit").isEmpty)
+        #expect(Self.messages(in: await Self.drain(subscription)).isEmpty)
+        await engine.stop()
+    }
+
     // MARK: - Async API (network)
 
     /// Two GossipSub nodes exchanging messages via the async subscription API
