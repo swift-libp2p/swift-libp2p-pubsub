@@ -51,8 +51,8 @@ public enum PubSubError: Error, Equatable, Sendable {
 actor PubSubEngine {
     typealias Instant = ContinuousClock.Instant
 
-    /// The protocol we speak, ex: `/meshsub/1.0.0`
-    nonisolated let protocolID: String
+    /// The protocols we speak, in order of preference, ex: `[/meshsub/1.0.0, /floodsub/1.0.0]`
+    nonisolated let protocolIDs: [String]
     nonisolated let localPeer: PeerID
     nonisolated let configuration: PubSubConfiguration
     nonisolated let logger: Logger
@@ -69,13 +69,14 @@ actor PubSubEngine {
     private let clock = ContinuousClock()
 
     init(
-        protocolID: String,
+        protocolIDs: [String],
         localPeer: PeerID,
         configuration: PubSubConfiguration,
         router: any PubSubRouter,
         logger: Logger
     ) {
-        self.protocolID = protocolID
+        precondition(!protocolIDs.isEmpty, "A PubSub engine must speak at least one protocol")
+        self.protocolIDs = protocolIDs
         self.localPeer = localPeer
         self.configuration = configuration
         self.router = router
@@ -304,7 +305,7 @@ actor PubSubEngine {
     /// Drives a stream negotiated for one of our protocols, for as long as it's open
     nonisolated func run(_ stream: LibP2PStream) async {
         guard let peer = stream.remotePeer else {
-            self.logger.warning("Ignoring a `\(self.protocolID)` stream without an authenticated remote peer")
+            self.logger.warning("Ignoring a `\(stream.protocol)` stream without an authenticated remote peer")
             return
         }
         guard peer != self.localPeer else { return }
@@ -318,7 +319,9 @@ actor PubSubEngine {
 
     /// Reads the RPCs `peer` sends us, one at a time
     private nonisolated func runInbound(_ stream: LibP2PStream, from peer: PeerID) async {
-        guard await self.inboundStreamOpened(peer, connection: stream.connection) else { return }
+        guard await self.inboundStreamOpened(peer, protocolID: stream.protocol, connection: stream.connection) else {
+            return
+        }
         do {
             for try await frame in stream.inbound {
                 await self.handle(frame, from: peer)
@@ -331,7 +334,7 @@ actor PubSubEngine {
 
     /// Writes our queued RPCs to `peer`, until the stream closes or the peer is removed
     private nonisolated func runOutbound(_ stream: LibP2PStream, to peer: PeerID) async {
-        guard let writer = await self.attachWriter(to: peer) else {
+        guard let writer = await self.attachWriter(to: peer, protocolID: stream.protocol) else {
             self.logger.debug("Closing a redundant outbound stream to \(peer)")
             return
         }
@@ -356,13 +359,18 @@ actor PubSubEngine {
         await self.detachWriter(from: peer, token: writer.token)
     }
 
-    private func inboundStreamOpened(_ peer: PeerID, connection: Connection) -> Bool {
+    private func inboundStreamOpened(_ peer: PeerID, protocolID: String, connection: Connection) -> Bool {
         guard self.isRunning else { return false }
         var state = self.peers[peer] ?? PeerState(bufferSize: self.configuration.outboundQueueSize)
         state.inboundStreams += 1
         self.peers[peer] = state
-        /// Make sure we have a stream to write to this peer on, even if our topology hasn't told us about it yet
-        if state.writer == nil { self.openOutboundStream(on: connection) }
+        if state.writer == nil {
+            /// Until we open our own stream, assume the peer speaks the protocol it chose for its stream
+            self.router.addPeer(peer, protocolID: protocolID)
+            /// Make sure we have a mirrored, write side, stream to this peer (for the same protocol)
+            /// Ou peerEvent / protocol change event will check before opening another stream for the same protocol
+            self.openOutboundStream(protocolID, on: connection)
+        }
         return true
     }
 
@@ -376,13 +384,15 @@ actor PubSubEngine {
         }
     }
 
-    private func attachWriter(to peer: PeerID) -> Writer? {
+    private func attachWriter(to peer: PeerID, protocolID: String) -> Writer? {
         guard self.isRunning else { return nil }
         var state = self.peers[peer] ?? PeerState(bufferSize: self.configuration.outboundQueueSize)
         guard state.writer == nil else { return nil }
         let token = UUID()
         state.writer = token
         self.peers[peer] = state
+        /// The router needs to know what protocol this peer is speaking, so pass it along...
+        self.router.addPeer(peer, protocolID: protocolID)
         return Writer(token: token, queue: state.queue, hello: self.helloFrame())
     }
 
@@ -404,12 +414,12 @@ actor PubSubEngine {
         self.router.removePeer(peer)
     }
 
-    private func openOutboundStream(on connection: Connection) {
+    private func openOutboundStream(_ protocolID: String, on connection: Connection) {
         guard let connection = connection as? BaseConnection else {
-            self.logger.debug("Unable to open a `\(self.protocolID)` stream on a \(type(of: connection))")
+            self.logger.debug("Unable to open a `\(protocolID)` stream on a \(type(of: connection))")
             return
         }
-        connection.newStream(forProtocol: self.protocolID, mode: .ifOutboundDoesntAlreadyExist)
+        connection.newStream(forProtocol: protocolID, mode: .ifOutboundDoesntAlreadyExist)
     }
 
     /// The first RPC on each of our outbound streams announces all of our subscriptions
