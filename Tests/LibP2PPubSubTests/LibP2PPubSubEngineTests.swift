@@ -285,7 +285,60 @@ struct LibP2PPubSubEngineTests {
         try await node2.asyncShutdown()
     }
 
+    /// A GossipSub node and a FloodSub-only node exchanging messages (GossipSub speaks `/floodsub/1.0.0` to FloodSub peers)
+    @Test(.timeLimit(.minutes(1)))
+    func testGossipSubInteroperatesWithFloodSub() async throws {
+        let gossipNode = try await Self.makeHost(.gossipsub)
+        let floodNode = try await Self.makeHost(.floodsub)
+        try await gossipNode.startup()
+        try await floodNode.startup()
+
+        do {
+            let gossipSubscription = try await gossipNode.pubsub.gossipsub.subscribe(TopicConfiguration(topic: "fruit"))
+            let floodSubscription = try await floodNode.pubsub.floodsub.subscribe(TopicConfiguration(topic: "fruit"))
+
+            /// The FloodSub node dials the GossipSub node over `/floodsub/1.0.0`
+            try await floodNode.newStream(to: gossipNode.peerInfo, forProtocol: FloodSub.multicodec)
+            #expect(await Self.eventually { await gossipNode.pubsub.gossipsub.peers(subscribedTo: "fruit") == [floodNode.peerID] })
+            #expect(await Self.eventually { await floodNode.pubsub.floodsub.peers(subscribedTo: "fruit") == [gossipNode.peerID] })
+
+            /// The FloodSub peer is never grafted into our mesh
+            let notMeshed = await gossipNode.pubsub.gossipsub.engine.inspectRouter { router in
+                (router as? GossipSubRouter)?.mesh["fruit"]?.isEmpty ?? false
+            }
+            #expect(notMeshed)
+
+            try await gossipNode.pubsub.gossipsub.publish(Data("from gossipsub".utf8), to: "fruit")
+            try await floodNode.pubsub.floodsub.publish(Data("from floodsub".utf8), to: "fruit")
+
+            #expect(try await Self.firstMessage(in: floodSubscription) == "from gossipsub")
+            #expect(try await Self.firstMessage(in: gossipSubscription) == "from floodsub")
+        } catch {
+            Issue.record(error)
+        }
+
+        try await gossipNode.asyncShutdown()
+        try await floodNode.asyncShutdown()
+    }
+
     // MARK: - Helpers
+
+    /// The first message delivered to the subscription, or `nil` if none arrives within the timeout
+    private static func firstMessage(in subscription: PubSubSubscription, timeout: Duration = .seconds(10)) async throws -> String? {
+        try await withThrowingTaskGroup(of: String?.self) { group in
+            group.addTask {
+                for await message in subscription.messages { return String(decoding: message.data, as: UTF8.self) }
+                return nil
+            }
+            group.addTask {
+                try await Task.sleep(for: timeout)
+                return nil
+            }
+            let first = try await group.next() ?? nil
+            group.cancelAll()
+            return first
+        }
+    }
 
     private static func makeEngine(
         router: any PubSubRouter = FloodSubRouter(),
@@ -294,7 +347,7 @@ struct LibP2PPubSubEngineTests {
         var logger = Logger(label: "engine-tests")
         logger.logLevel = .critical
         return PubSubEngine(
-            protocolID: FloodSub.multicodec,
+            protocolIDs: [FloodSub.multicodec],
             localPeer: try PeerID(.Ed25519),
             configuration: configuration,
             router: router,
@@ -350,13 +403,13 @@ struct LibP2PPubSubEngineTests {
         return await condition()
     }
 
-    private static func makeHost() async throws -> Application {
+    private static func makeHost(_ router: Application.PubSubServices.Provider = .gossipsub) async throws -> Application {
         let lib = try await Application.make(.testing, peerID: .ephemeral(type: .Ed25519))
         lib.connectionManager.use(connectionType: BaseConnection.self)
         lib.logger.logLevel = .info
         lib.security.use(.noise)
         lib.muxers.use(.yamux)
-        lib.pubsub.use(.gossipsub)
+        lib.pubsub.use(router)
         lib.servers.use(.tcp(host: "127.0.0.1", port: 0))
         return lib
     }
