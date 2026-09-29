@@ -21,7 +21,11 @@
 // For information on using the generated types, please see the documentation:
 //   https://github.com/apple/swift-protobuf/
 
+#if canImport(FoundationEssentials)
+import FoundationEssentials
+#else
 import Foundation
+#endif
 import SwiftProtobuf
 
 // If the compiler emits an error on this type, it is because this file
@@ -44,11 +48,11 @@ struct RPC: Sendable {
   var msgs: [RPC.Message] = []
 
   var control: RPC.ControlMessage {
-    get {return _control ?? RPC.ControlMessage()}
+    get {_control ?? RPC.ControlMessage()}
     set {_control = newValue}
   }
   /// Returns true if `control` has been explicitly set.
-  var hasControl: Bool {return self._control != nil}
+  var hasControl: Bool {self._control != nil}
   /// Clears the value of `control`. Subsequent reads from it will return its default value.
   mutating func clearControl() {self._control = nil}
 
@@ -61,20 +65,20 @@ struct RPC: Sendable {
 
     /// subscribe or unsubcribe
     var subscribe: Bool {
-      get {return _subscribe ?? false}
+      get {_subscribe ?? false}
       set {_subscribe = newValue}
     }
     /// Returns true if `subscribe` has been explicitly set.
-    var hasSubscribe: Bool {return self._subscribe != nil}
+    var hasSubscribe: Bool {self._subscribe != nil}
     /// Clears the value of `subscribe`. Subsequent reads from it will return its default value.
     mutating func clearSubscribe() {self._subscribe = nil}
 
     var topicID: String {
-      get {return _topicID ?? String()}
+      get {_topicID ?? String()}
       set {_topicID = newValue}
     }
     /// Returns true if `topicID` has been explicitly set.
-    var hasTopicID: Bool {return self._topicID != nil}
+    var hasTopicID: Bool {self._topicID != nil}
     /// Clears the value of `topicID`. Subsequent reads from it will return its default value.
     mutating func clearTopicID() {self._topicID = nil}
 
@@ -92,49 +96,49 @@ struct RPC: Sendable {
     // methods supported on all messages.
 
     var from: Data {
-      get {return _from ?? Data()}
+      get {_from ?? Data()}
       set {_from = newValue}
     }
     /// Returns true if `from` has been explicitly set.
-    var hasFrom: Bool {return self._from != nil}
+    var hasFrom: Bool {self._from != nil}
     /// Clears the value of `from`. Subsequent reads from it will return its default value.
     mutating func clearFrom() {self._from = nil}
 
     var data: Data {
-      get {return _data ?? Data()}
+      get {_data ?? Data()}
       set {_data = newValue}
     }
     /// Returns true if `data` has been explicitly set.
-    var hasData: Bool {return self._data != nil}
+    var hasData: Bool {self._data != nil}
     /// Clears the value of `data`. Subsequent reads from it will return its default value.
     mutating func clearData() {self._data = nil}
 
     var seqno: Data {
-      get {return _seqno ?? Data()}
+      get {_seqno ?? Data()}
       set {_seqno = newValue}
     }
     /// Returns true if `seqno` has been explicitly set.
-    var hasSeqno: Bool {return self._seqno != nil}
+    var hasSeqno: Bool {self._seqno != nil}
     /// Clears the value of `seqno`. Subsequent reads from it will return its default value.
     mutating func clearSeqno() {self._seqno = nil}
 
     var topicIds: [String] = []
 
     var signature: Data {
-      get {return _signature ?? Data()}
+      get {_signature ?? Data()}
       set {_signature = newValue}
     }
     /// Returns true if `signature` has been explicitly set.
-    var hasSignature: Bool {return self._signature != nil}
+    var hasSignature: Bool {self._signature != nil}
     /// Clears the value of `signature`. Subsequent reads from it will return its default value.
     mutating func clearSignature() {self._signature = nil}
 
     var key: Data {
-      get {return _key ?? Data()}
+      get {_key ?? Data()}
       set {_key = newValue}
     }
     /// Returns true if `key` has been explicitly set.
-    var hasKey: Bool {return self._key != nil}
+    var hasKey: Bool {self._key != nil}
     /// Clears the value of `key`. Subsequent reads from it will return its default value.
     mutating func clearKey() {self._key = nil}
 
@@ -162,6 +166,8 @@ struct RPC: Sendable {
 
     var prune: [RPC.ControlPrune] = []
 
+    var idontwant: [RPC.ControlIDontWant] = []
+
     var unknownFields = SwiftProtobuf.UnknownStorage()
 
     init() {}
@@ -173,11 +179,11 @@ struct RPC: Sendable {
     // methods supported on all messages.
 
     var topicID: String {
-      get {return _topicID ?? String()}
+      get {_topicID ?? String()}
       set {_topicID = newValue}
     }
     /// Returns true if `topicID` has been explicitly set.
-    var hasTopicID: Bool {return self._topicID != nil}
+    var hasTopicID: Bool {self._topicID != nil}
     /// Clears the value of `topicID`. Subsequent reads from it will return its default value.
     mutating func clearTopicID() {self._topicID = nil}
 
@@ -202,17 +208,30 @@ struct RPC: Sendable {
     init() {}
   }
 
+  /// GossipSub v1.2
+  struct ControlIDontWant: Sendable {
+    // SwiftProtobuf.Message conformance is added in an extension below. See the
+    // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+    // methods supported on all messages.
+
+    var messageIds: [Data] = []
+
+    var unknownFields = SwiftProtobuf.UnknownStorage()
+
+    init() {}
+  }
+
   struct ControlGraft: Sendable {
     // SwiftProtobuf.Message conformance is added in an extension below. See the
     // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
     // methods supported on all messages.
 
     var topicID: String {
-      get {return _topicID ?? String()}
+      get {_topicID ?? String()}
       set {_topicID = newValue}
     }
     /// Returns true if `topicID` has been explicitly set.
-    var hasTopicID: Bool {return self._topicID != nil}
+    var hasTopicID: Bool {self._topicID != nil}
     /// Clears the value of `topicID`. Subsequent reads from it will return its default value.
     mutating func clearTopicID() {self._topicID = nil}
 
@@ -229,22 +248,22 @@ struct RPC: Sendable {
     // methods supported on all messages.
 
     var topicID: String {
-      get {return _topicID ?? String()}
+      get {_topicID ?? String()}
       set {_topicID = newValue}
     }
     /// Returns true if `topicID` has been explicitly set.
-    var hasTopicID: Bool {return self._topicID != nil}
+    var hasTopicID: Bool {self._topicID != nil}
     /// Clears the value of `topicID`. Subsequent reads from it will return its default value.
     mutating func clearTopicID() {self._topicID = nil}
 
     var peers: [RPC.PeerInfo] = []
 
     var backoff: UInt64 {
-      get {return _backoff ?? 0}
+      get {_backoff ?? 0}
       set {_backoff = newValue}
     }
     /// Returns true if `backoff` has been explicitly set.
-    var hasBackoff: Bool {return self._backoff != nil}
+    var hasBackoff: Bool {self._backoff != nil}
     /// Clears the value of `backoff`. Subsequent reads from it will return its default value.
     mutating func clearBackoff() {self._backoff = nil}
 
@@ -262,20 +281,20 @@ struct RPC: Sendable {
     // methods supported on all messages.
 
     var peerID: Data {
-      get {return _peerID ?? Data()}
+      get {_peerID ?? Data()}
       set {_peerID = newValue}
     }
     /// Returns true if `peerID` has been explicitly set.
-    var hasPeerID: Bool {return self._peerID != nil}
+    var hasPeerID: Bool {self._peerID != nil}
     /// Clears the value of `peerID`. Subsequent reads from it will return its default value.
     mutating func clearPeerID() {self._peerID = nil}
 
     var signedPeerRecord: Data {
-      get {return _signedPeerRecord ?? Data()}
+      get {_signedPeerRecord ?? Data()}
       set {_signedPeerRecord = newValue}
     }
     /// Returns true if `signedPeerRecord` has been explicitly set.
-    var hasSignedPeerRecord: Bool {return self._signedPeerRecord != nil}
+    var hasSignedPeerRecord: Bool {self._signedPeerRecord != nil}
     /// Clears the value of `signedPeerRecord`. Subsequent reads from it will return its default value.
     mutating func clearSignedPeerRecord() {self._signedPeerRecord = nil}
 
@@ -438,7 +457,7 @@ extension RPC.Message: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementati
 
 extension RPC.ControlMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = RPC.protoMessageName + ".ControlMessage"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}ihave\0\u{1}iwant\0\u{1}graft\0\u{1}prune\0")
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}ihave\0\u{1}iwant\0\u{1}graft\0\u{1}prune\0\u{1}idontwant\0")
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -450,6 +469,7 @@ extension RPC.ControlMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImple
       case 2: try { try decoder.decodeRepeatedMessageField(value: &self.iwant) }()
       case 3: try { try decoder.decodeRepeatedMessageField(value: &self.graft) }()
       case 4: try { try decoder.decodeRepeatedMessageField(value: &self.prune) }()
+      case 5: try { try decoder.decodeRepeatedMessageField(value: &self.idontwant) }()
       default: break
       }
     }
@@ -468,6 +488,9 @@ extension RPC.ControlMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImple
     if !self.prune.isEmpty {
       try visitor.visitRepeatedMessageField(value: self.prune, fieldNumber: 4)
     }
+    if !self.idontwant.isEmpty {
+      try visitor.visitRepeatedMessageField(value: self.idontwant, fieldNumber: 5)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -476,6 +499,7 @@ extension RPC.ControlMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImple
     if lhs.iwant != rhs.iwant {return false}
     if lhs.graft != rhs.graft {return false}
     if lhs.prune != rhs.prune {return false}
+    if lhs.idontwant != rhs.idontwant {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -544,6 +568,36 @@ extension RPC.ControlIWant: SwiftProtobuf.Message, SwiftProtobuf._MessageImpleme
   }
 
   static func ==(lhs: RPC.ControlIWant, rhs: RPC.ControlIWant) -> Bool {
+    if lhs.messageIds != rhs.messageIds {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension RPC.ControlIDontWant: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = RPC.protoMessageName + ".ControlIDontWant"
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}messageIDs\0")
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeRepeatedBytesField(value: &self.messageIds) }()
+      default: break
+      }
+    }
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.messageIds.isEmpty {
+      try visitor.visitRepeatedBytesField(value: self.messageIds, fieldNumber: 1)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: RPC.ControlIDontWant, rhs: RPC.ControlIDontWant) -> Bool {
     if lhs.messageIds != rhs.messageIds {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
