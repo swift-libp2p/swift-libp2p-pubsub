@@ -274,7 +274,7 @@ actor PubSubEngine {
         if self.configuration.emitSelf, let state { self.deliver(.data(message), to: state) }
 
         var outbox = Outbox()
-        for peer in self.router.route(message, id: id, topic: topic, from: nil) {
+        for peer in self.router.route(message, id: id, topic: topic, from: nil, now: self.clock.now) {
             outbox.send(messages: [message], to: peer)
         }
         self.flush(outbox)
@@ -506,7 +506,7 @@ actor PubSubEngine {
             guard self.seen.insert(id, now: self.clock.now), let current = self.topics[topic] else { continue }
 
             self.deliver(.data(message), to: current)
-            for target in self.router.route(message, id: id, topic: topic, from: peer)
+            for target in self.router.route(message, id: id, topic: topic, from: peer, now: self.clock.now)
             where target != peer && !(message.from == target) {
                 outbox.send(messages: [message], to: target)
             }
@@ -552,7 +552,7 @@ actor PubSubEngine {
     func heartbeat() {
         guard self.isRunning else { return }
         self.seen.prune(now: self.clock.now)
-        self.flush(self.router.heartbeat())
+        self.flush(self.router.heartbeat(now: self.clock.now))
     }
 
     // MARK: - Outbound RPCs
