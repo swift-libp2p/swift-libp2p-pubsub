@@ -25,6 +25,9 @@ struct FloodSubRouter: PubSubRouter {
         self.membership[topic]
     }
 
+    /// Every FloodSub peer is treated the same, regardless of protocol
+    mutating func addPeer(_ peer: PeerID, protocolID: String) {}
+
     /// Remove the peer from the topics membership
     mutating func removePeer(_ peer: PeerID) {
         self.membership.remove(peer)
@@ -42,7 +45,13 @@ struct FloodSubRouter: PubSubRouter {
     mutating func leave(_ topic: String) -> Outbox { Outbox() }
 
     /// Just return the members for the topic
-    mutating func route(_ message: RPC.Message, id: Data, topic: String, from source: PeerID?) -> Set<PeerID> {
+    mutating func route(
+        _ message: RPC.Message,
+        id: Data,
+        topic: String,
+        from source: PeerID?,
+        now: Instant
+    ) -> Set<PeerID> {
         self.membership[topic]
     }
 
@@ -52,5 +61,5 @@ struct FloodSubRouter: PubSubRouter {
     }
 
     /// No FloodSub specific heartbeat logic
-    mutating func heartbeat() -> Outbox { Outbox() }
+    mutating func heartbeat(now: Instant) -> Outbox { Outbox() }
 }
