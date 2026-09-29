@@ -170,13 +170,143 @@ struct LibP2PPubSubRouterTests {
         let peers = try Self.peers(10)
         var router = Self.gossipRouter(peers: peers)
 
-        /// Before joining (and while our mesh is empty) messages go to every known topic peer
-        #expect(router.route(Self.message("a"), id: Data("a".utf8), topic: "fruit", from: nil) == Set(peers))
+        /// Before joining, our own messages go to the topic's fanout (`D` random topic peers)
+        let fanoutTargets = router.route(Self.message("a"), id: Data("a".utf8), topic: "fruit", from: nil, now: .now)
+        #expect(fanoutTargets.count == 6)
+        #expect(fanoutTargets.isSubset(of: Set(peers)))
+        #expect(router.fanout["fruit"] == fanoutTargets)
 
         /// Once joined, messages go to our mesh
         _ = router.join("fruit")
         let mesh = try #require(router.mesh["fruit"])
-        #expect(router.route(Self.message("b"), id: Data("b".utf8), topic: "fruit", from: peers[0]) == mesh)
+        #expect(router.route(Self.message("b"), id: Data("b".utf8), topic: "fruit", from: peers[0], now: .now) == mesh)
+    }
+
+    // MARK: - Fanout
+
+    /// Publishing to a topic we're not subscribed to keeps using the same fanout peers, until `fanout_ttl` after our last publish
+    @Test func testFanoutLifetime() throws {
+        let start = ContinuousClock.now
+        var router = Self.gossipRouter(peers: try Self.peers(10), parameters: .init(fanoutTTL: .seconds(60)))
+
+        let first = router.route(Self.message("a"), id: Data("a".utf8), topic: "fruit", from: nil, now: start)
+        let second = router.route(Self.message("b"), id: Data("b".utf8), topic: "fruit", from: nil, now: start + .seconds(30))
+        #expect(first == second)
+
+        /// Still within `fanout_ttl` of our last publish
+        _ = router.heartbeat(now: start + .seconds(89))
+        #expect(router.fanout["fruit"] == second)
+
+        /// `fanout_ttl` after our last publish, the fanout is forgotten
+        _ = router.heartbeat(now: start + .seconds(90))
+        #expect(router.fanout["fruit"] == nil)
+        #expect(router.lastPublished["fruit"] == nil)
+    }
+
+    /// Fanout peers that unsubscribe (or disconnect) are replaced by the heartbeat
+    @Test func testFanoutMaintenance() throws {
+        let peers = try Self.peers(10)
+        var router = Self.gossipRouter(peers: peers)
+        let fanout = router.route(Self.message("a"), id: Data("a".utf8), topic: "fruit", from: nil, now: .now)
+
+        let degree = GossipSubParameters().meshDegree
+        #expect(degree < peers.count, "mesh degree exceeds number of network peers")
+        
+        let leaving = try #require(fanout.first)
+        router.handleSubscription(from: leaving, topic: "fruit", subscribed: false)
+        #expect(router.fanout["fruit"]?.contains(leaving) == false)
+        #expect(router.fanout["fruit"]?.count == degree - 1)
+
+        _ = router.heartbeat(now: .now)
+        #expect(router.fanout["fruit"]?.count == degree)
+        #expect(router.fanout["fruit"]?.contains(leaving) == false)
+    }
+
+    /// Joining a topic we've been publishing to grafts our fanout peers first, and forgets the fanout
+    @Test func testJoinPromotesFanoutPeers() throws {
+        var router = Self.gossipRouter(peers: try Self.peers(10))
+        let fanout = router.route(Self.message("a"), id: Data("a".utf8), topic: "fruit", from: nil, now: .now)
+
+        let outbox = router.join("fruit")
+        #expect(router.mesh["fruit"] == fanout)
+        #expect(Set(outbox.rpcs.keys) == fanout)
+        #expect(router.fanout["fruit"] == nil)
+        #expect(router.lastPublished["fruit"] == nil)
+    }
+
+    /// While our mesh is empty (ex: before our first heartbeat grafts anyone), messages go to at most `D` topic peers
+    @Test func testEmptyMeshFallbackIsBounded() throws {
+        var router = GossipSubRouter()
+        _ = router.join("fruit")
+        for peer in try Self.peers(10) { router.handleSubscription(from: peer, topic: "fruit", subscribed: true) }
+
+        let degree = min(GossipSubParameters().meshDegree, 10)
+        
+        let targets = router.route(Self.message("a"), id: Data("a".utf8), topic: "fruit", from: nil, now: .now)
+        #expect(targets.count == degree)
+        #expect(router.mesh["fruit"]?.isEmpty == true, "Falling back doesn't graft anyone")
+    }
+
+    // MARK: - Gossip
+
+    /// Each heartbeat, recent messages are advertised to `D_lazy` random topic peers outside the mesh
+    @Test func testGossipDegree() throws {
+        let peers = try Self.peers(20)
+        var router = Self.gossipRouter(peers: peers, parameters: .init(gossipDegree: 4))
+        _ = router.join("fruit")
+        let mesh = try #require(router.mesh["fruit"])
+        _ = router.route(Self.message("a"), id: Data("a".utf8), topic: "fruit", from: nil, now: .now)
+
+        let gossiped = Set(router.heartbeat(now: .now).rpcs.filter { !$0.value.control.ihave.isEmpty }.keys)
+        #expect(gossiped.count == 4)
+        /// ensure we didn't gossip to our mesh peers
+        #expect(gossiped.isDisjoint(with: mesh))
+    }
+
+    /// Fanout topics are gossiped too, to topic peers outside the fanout
+    @Test func testFanoutTopicsAreGossiped() throws {
+        let peers = try Self.peers(10)
+        var router = Self.gossipRouter(peers: peers)
+        let fanout = router.route(Self.message("a"), id: Data("a".utf8), topic: "fruit", from: nil, now: .now)
+
+        let gossiped = Set(router.heartbeat(now: .now).rpcs.filter { !$0.value.control.ihave.isEmpty }.keys)
+        #expect(gossiped == Set(peers).subtracting(fanout))
+    }
+
+    // MARK: - FloodSub peers
+
+    /// FloodSub peers receive every message on their topics, but are never grafted, added to a fanout or gossiped to
+    @Test func testFloodSubPeers() throws {
+        let floodPeer = try PeerID(.Ed25519)
+        let gossipPeers = try Self.peers(8)
+        var router = Self.gossipRouter(peers: gossipPeers + [floodPeer])
+        router.addPeer(floodPeer, protocolID: FloodSub.multicodec)
+        for peer in gossipPeers { router.addPeer(peer, protocolID: GossipSub.multicodec) }
+
+        /// Our fanout excludes the FloodSub peer, but it's still sent the message
+        let fanoutTargets = router.route(Self.message("a"), id: Data("a".utf8), topic: "fruit", from: nil, now: .now)
+        #expect(router.fanout["fruit"]?.contains(floodPeer) == false)
+        #expect(fanoutTargets.contains(floodPeer))
+
+        /// JOIN never grafts the FloodSub peer
+        let joined = router.join("fruit")
+        #expect(router.mesh["fruit"]?.contains(floodPeer) == false)
+        #expect(joined.rpcs[floodPeer] == nil)
+
+        /// Forwarded messages still reach the FloodSub peer
+        let forwardTargets = router.route(Self.message("b"), id: Data("b".utf8), topic: "fruit", from: gossipPeers[0], now: .now)
+        #expect(forwardTargets.contains(floodPeer))
+
+        /// The heartbeat never grafts or gossips to the FloodSub peer
+        for _ in 0..<3 {
+            let outbox = router.heartbeat(now: .now)
+            #expect(outbox.rpcs[floodPeer] == nil)
+        }
+
+        /// Control messages from a FloodSub peer are ignored
+        let reply = router.handleControl(.with { $0.graft = [.with { $0.topicID = "fruit" }] }, from: floodPeer, hasSeen: { _ in false })
+        #expect(reply.isEmpty)
+        #expect(router.mesh["fruit"]?.contains(floodPeer) == false)
     }
 
     @Test func testHeartbeatGossipsToPeersOutsideTheMesh() throws {
