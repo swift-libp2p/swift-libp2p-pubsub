@@ -68,6 +68,12 @@ struct Outbox {
         )
     }
 
+    /// GossipSub v1.2, tells the peer not to send us the specified messages
+    mutating func dontWant(_ ids: [Data], to peer: PeerID) {
+        guard !ids.isEmpty else { return }
+        self.send(control: .with { $0.idontwant = [.with { $0.messageIds = ids }] }, to: peer)
+    }
+
     mutating func merge(_ other: Outbox) {
         for (peer, rpc) in other.rpcs { self.send(rpc, to: peer) }
         self.dials.formUnion(other.dials)
@@ -85,6 +91,7 @@ extension RPC {
             control.iwant.append(contentsOf: other.control.iwant)
             control.graft.append(contentsOf: other.control.graft)
             control.prune.append(contentsOf: other.control.prune)
+            control.idontwant.append(contentsOf: other.control.idontwant)
             self.control = control
         }
     }
