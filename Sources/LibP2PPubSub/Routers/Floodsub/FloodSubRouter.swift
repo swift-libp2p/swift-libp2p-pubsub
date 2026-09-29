@@ -26,7 +26,7 @@ struct FloodSubRouter: PubSubRouter {
     }
 
     /// Every FloodSub peer is treated the same, regardless of protocol
-    mutating func addPeer(_ peer: PeerID, protocolID: String) {}
+    mutating func addPeer(_ peer: PeerID, protocolID: String, outbound: Bool) {}
 
     /// Remove the peer from the topics membership
     mutating func removePeer(_ peer: PeerID) {
@@ -39,10 +39,10 @@ struct FloodSubRouter: PubSubRouter {
     }
 
     /// No FloodSub specific join / subscribe message
-    mutating func join(_ topic: String) -> Outbox { Outbox() }
+    mutating func join(_ topic: String, now: Instant) -> Outbox { Outbox() }
 
     /// No FloodSub specific leave / unsubscribe message
-    mutating func leave(_ topic: String) -> Outbox { Outbox() }
+    mutating func leave(_ topic: String, now: Instant) -> Outbox { Outbox() }
 
     /// Just return the members for the topic
     mutating func route(
@@ -56,7 +56,12 @@ struct FloodSubRouter: PubSubRouter {
     }
 
     /// No Control messages in FloodSub, return an empty Outbox
-    mutating func handleControl(_ control: RPC.ControlMessage, from peer: PeerID, hasSeen: (Data) -> Bool) -> Outbox {
+    mutating func handleControl(
+        _ control: RPC.ControlMessage,
+        from peer: PeerID,
+        hasSeen: (Data) -> Bool,
+        now: Instant
+    ) -> Outbox {
         Outbox()
     }
 
