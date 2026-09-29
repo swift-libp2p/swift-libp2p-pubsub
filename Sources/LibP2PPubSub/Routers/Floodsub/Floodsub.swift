@@ -25,7 +25,7 @@ public final class FloodSub: PubSubService, PubSubCore, LifecycleHandler, @unche
     public init(application: Application, configuration: PubSubConfiguration = .init()) {
         super.init(
             application: application,
-            protocolID: FloodSub.multicodec,
+            protocolIDs: [FloodSub.multicodec],
             name: "Floodsub",
             configuration: configuration,
             router: FloodSubRouter(),
