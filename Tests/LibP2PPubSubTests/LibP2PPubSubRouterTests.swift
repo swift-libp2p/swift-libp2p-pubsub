@@ -78,7 +78,7 @@ struct LibP2PPubSubRouterTests {
 
         /// Peers subscribe after we joined, the heartbeat grafts them (up to D)
         for peer in try Self.peers(8) { router.handleSubscription(from: peer, topic: "fruit", subscribed: true) }
-        let outbox = router.heartbeat()
+        let outbox = router.heartbeat(now: .now)
 
         #expect(router.mesh["fruit"]?.count == 6)
         #expect(outbox.rpcs.values.filter { !$0.control.graft.isEmpty }.count == 6)
@@ -95,7 +95,7 @@ struct LibP2PPubSubRouterTests {
         }
         #expect(router.mesh["fruit"]?.count == 15)
 
-        let outbox = router.heartbeat()
+        let outbox = router.heartbeat(now: .now)
         #expect(router.mesh["fruit"]?.count == 6)
         #expect(outbox.rpcs.values.filter { !$0.control.prune.isEmpty }.count == 9)
     }
@@ -154,7 +154,7 @@ struct LibP2PPubSubRouterTests {
         let peer = try PeerID(.Ed25519)
         var router = GossipSubRouter()
         let id = Data("banana".utf8)
-        _ = router.route(Self.message("banana"), id: id, topic: "fruit", from: nil)
+        _ = router.route(Self.message("banana"), id: id, topic: "fruit", from: nil, now: .now)
 
         let outbox = router.handleControl(
             .with { $0.iwant = [.with { $0.messageIds = [id, Data("unknown".utf8), id] }] },
@@ -186,8 +186,8 @@ struct LibP2PPubSubRouterTests {
         let mesh = try #require(router.mesh["fruit"])
 
         let id = Data("banana".utf8)
-        _ = router.route(Self.message("banana"), id: id, topic: "fruit", from: nil)
-        let outbox = router.heartbeat()
+        _ = router.route(Self.message("banana"), id: id, topic: "fruit", from: nil, now: .now)
+        let outbox = router.heartbeat(now: .now)
 
         let gossiped = Set(outbox.rpcs.filter { !$0.value.control.ihave.isEmpty }.keys)
         #expect(gossiped == Set(peers).subtracting(mesh))
@@ -197,7 +197,7 @@ struct LibP2PPubSubRouterTests {
         let quiet = GossipSubRouter(parameters: .init())
         var quietRouter = quiet
         _ = quietRouter.join("fruit")
-        #expect(quietRouter.heartbeat().isEmpty)
+        #expect(quietRouter.heartbeat(now: .now).isEmpty)
     }
 
     // MARK: - Outbox
