@@ -30,8 +30,10 @@ protocol PubSubRouter: Sendable {
 
     /// A peer we're exchanging RPCs with, over the negotiated `protocolID` (ex: `/meshsub/1.2.0` or `/floodsub/1.0.0`)
     ///
-    /// - Parameter outbound: Whether we dialed the connection to the peer (as opposed to the peer dialing us)
-    mutating func addPeer(_ peer: PeerID, protocolID: String, outbound: Bool)
+    /// - Parameters:
+    ///   - outbound: Whether we dialed the connection to the peer (as opposed to the peer dialing us)
+    ///   - ip: The IP address the peer connected from (if known)
+    mutating func addPeer(_ peer: PeerID, protocolID: String, outbound: Bool, ip: String?)
 
     /// Forgets everything about a peer that has disconnected
     mutating func removePeer(_ peer: PeerID)
