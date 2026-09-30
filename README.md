@@ -7,7 +7,7 @@
 
 > FloodSub and GossipSub PubSub routers for swift-libp2p
 
-> **Warning**
+> [!WARNING]
 > This implementation hasn't been extensively tested yet. Please report any issues you encounter, here on github, so we can make this code better and safer for everyone!
 
 ## Table of Contents
