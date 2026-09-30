@@ -115,6 +115,29 @@ public struct GossipSubParameters: Sendable {
     /// The most message IDs we'll accept in a single IDONTWANT message.
     public var maxDontWantLength: Int
 
+    // MARK: Peer scoring (GossipSub v1.1)
+
+    /// Enables peer scoring. `nil` (the default) disables it, in which case every peer scores 0.
+    public var scoring: GossipSubScoring?
+
+    /// `D_score`, when pruning an oversubscribed mesh, the number of highest scoring peers we keep (the rest are random).
+    public var meshDegreeScore: Int
+
+    /// How many heartbeats between opportunistic grafting attempts. When a mesh's median score drops below
+    /// ``PeerScoreThresholds/opportunisticGraftThreshold`` we graft `opportunisticGraftPeers` peers
+    /// scoring above the median.
+    public var opportunisticGraftTicks: Int
+
+    /// The number of peers opportunistic grafting adds to a mesh
+    public var opportunisticGraftPeers: Int
+
+    /// A peer that grafts within this long of being pruned (while backed off) is penalized twice
+    public var graftFloodThreshold: Duration
+
+    /// How long a peer has to deliver a message it advertised (via IHAVE) after we requested it (via IWANT), before we
+    /// penalize it for a broken promise
+    public var iWantFollowupTime: Duration
+
     public init(
         meshDegree: Int = 6,
         meshDegreeLow: Int = 5,
@@ -139,7 +162,13 @@ public struct GossipSubParameters: Sendable {
         dontWantThreshold: Int = 1024,
         dontWantTTL: Int = 3,
         maxDontWantMessages: Int = 1000,
-        maxDontWantLength: Int = 10
+        maxDontWantLength: Int = 10,
+        scoring: GossipSubScoring? = nil,
+        meshDegreeScore: Int = 4,
+        opportunisticGraftTicks: Int = 60,
+        opportunisticGraftPeers: Int = 2,
+        graftFloodThreshold: Duration = .seconds(10),
+        iWantFollowupTime: Duration = .seconds(3)
     ) {
         precondition(
             0 < meshDegreeLow && meshDegreeLow <= meshDegree && meshDegree <= meshDegreeHigh,
@@ -188,5 +217,18 @@ public struct GossipSubParameters: Sendable {
         self.dontWantTTL = dontWantTTL
         self.maxDontWantMessages = maxDontWantMessages
         self.maxDontWantLength = maxDontWantLength
+
+        precondition(
+            0 <= meshDegreeScore && meshDegreeScore <= meshDegree,
+            "GossipSub's score retention must satisfy 0 <= D_score <= D"
+        )
+        precondition(opportunisticGraftTicks > 0 && opportunisticGraftPeers >= 0, "GossipSub's opportunistic grafting is invalid")
+        precondition(graftFloodThreshold >= .zero && iWantFollowupTime > .zero, "GossipSub's scoring durations are invalid")
+        self.scoring = scoring
+        self.meshDegreeScore = meshDegreeScore
+        self.opportunisticGraftTicks = opportunisticGraftTicks
+        self.opportunisticGraftPeers = opportunisticGraftPeers
+        self.graftFloodThreshold = graftFloodThreshold
+        self.iWantFollowupTime = iWantFollowupTime
     }
 }
