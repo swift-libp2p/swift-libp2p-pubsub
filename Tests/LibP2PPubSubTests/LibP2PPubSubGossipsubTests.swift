@@ -12,6 +12,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#if TestDependencies
 import LibP2P
 import LibP2PNoise
 import LibP2PYAMUX
@@ -115,10 +116,10 @@ final class LibP2PPubSubGossipsubTests {
                 subscription2.publish(node2Message.data(using: .utf8)!)
             }
 
-            await expectationNode1ReceivedNode2Subscription.wait()
-            await expectationNode1ReceivedNode2Message.wait()
-            await expectationNode2ReceivedNode1Subscription.wait()
-            await expectationNode2ReceivedNode1Message.wait()
+            try await expectationNode1ReceivedNode2Subscription.wait(timeout: .seconds(10))
+            try await expectationNode1ReceivedNode2Message.wait(timeout: .seconds(10))
+            try await expectationNode2ReceivedNode1Subscription.wait(timeout: .seconds(10))
+            try await expectationNode2ReceivedNode1Message.wait(timeout: .seconds(10))
 
             try await subscription1.unsubscribe()
             try await subscription2.unsubscribe()
@@ -134,9 +135,6 @@ final class LibP2PPubSubGossipsubTests {
             /// Dump the current state of our PeerStore
             node1.peers.dumpAll()
 
-            node1.pubsub.gossipsub.dumpEventList()
-
-            node2.pubsub.gossipsub.dumpEventList()
         } catch {
             Issue.record(error)
         }
@@ -268,9 +266,9 @@ final class LibP2PPubSubGossipsubTests {
             }
 
             /// Wait for initial subscription alerts and the first message to arrive on Node 2
-            await expectationNode1ReceivedNode2Subscription.wait()
-            await expectationNode2ReceivedNode1Subscription.wait()
-            await expectationNode2ReceivedFirstNode1Message.wait()
+            try await expectationNode1ReceivedNode2Subscription.wait(timeout: .seconds(10))
+            try await expectationNode2ReceivedNode1Subscription.wait(timeout: .seconds(10))
+            try await expectationNode2ReceivedFirstNode1Message.wait(timeout: .seconds(10))
 
             /// Unsubscribe Node2 from our `news` subscription
             //try node2.pubsub.gossipsub.unsubscribe(topic: "news").wait()
@@ -292,8 +290,8 @@ final class LibP2PPubSubGossipsubTests {
             subscription2.on = subscriptionHandler
 
             /// Wait for the second subscription alert on Node1 and the second `news` message to arrive at Node2
-            await expectationNode1ReceivedNode2SecondSubscription.wait()
-            await expectationNode2ReceivedSecondNode1Message.wait()
+            try await expectationNode1ReceivedNode2SecondSubscription.wait(timeout: .seconds(10))
+            try await expectationNode2ReceivedSecondNode1Message.wait(timeout: .seconds(10))
 
             /// Stop sending messages
             task.cancel()
@@ -531,14 +529,13 @@ final class LibP2PPubSubGossipsubTests {
 
             /// Wait for each node to receive each message
             for node in nodes {
-                await node.expectation.wait()
+                try await node.expectation.wait(timeout: .seconds(10))
             }
 
             /// Wait an additional 2 seconds to ensure message propogation doesn't echo through the network causing duplicates
             try await Task.sleep(for: .seconds(2))
 
             nodes.first!.libp2p.peers.dumpAll()
-            nodes.first!.libp2p.pubsub.gossipsub.dumpEventList()
 
             /// Close all connections
             for node in nodes {
@@ -634,7 +631,7 @@ final class LibP2PPubSubGossipsubTests {
 
         try? await app.newStream(to: Multiaddr("/ip4/192.168.1.19/tcp/56758"), forProtocol: "/ipfs/ping/1.0.0")
 
-        await messageExpectation.wait()
+        try await messageExpectation.wait(timeout: .seconds(60))
 
         let _ = try await app.pubsub.publish("Goodbyte from swift!".data(using: .utf8)!.byteArray, toTopic: topic)
         //subscription.publish("Goodbyte from swift!".data(using: .utf8)!.bytes)
@@ -645,8 +642,6 @@ final class LibP2PPubSubGossipsubTests {
 
         print("Shutting down libp2p chat...")
         app.peers.dumpAll()
-
-        app.pubsub.gossipsub.dumpEventList()
 
         try await app.asyncShutdown()
     }
@@ -666,3 +661,4 @@ final class LibP2PPubSubGossipsubTests {
         return lib
     }
 }
+#endif

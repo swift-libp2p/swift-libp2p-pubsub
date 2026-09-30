@@ -2,7 +2,7 @@
 //
 // This source file is part of the swift-libp2p open source project
 //
-// Copyright (c) 2022-2025 swift-libp2p project authors
+// Copyright (c) 2022-2026 swift-libp2p project authors
 // Licensed under MIT
 //
 // See LICENSE for license information
@@ -15,29 +15,36 @@
 import LibP2P
 
 extension Application.PubSubServices.Provider {
+
+    /// GossipSub with the default configuration and parameters
     public static var gossipsub: Self {
+        .gossipsub(configuration: .init())
+    }
+
+    /// GossipSub
+    /// - Parameters:
+    ///   - configuration: The core PubSub Configuration params
+    ///   - parameters: GossipSub configuration params (mesh size, history legth, etc)
+    public static func gossipsub(
+        configuration: PubSubConfiguration,
+        parameters: GossipSubParameters = .init()
+    ) -> Self {
         .init {
             $0.pubsub.use { app -> GossipSub in
-                let gsub = try! GossipSub(group: app.eventLoopGroup, libp2p: app)
+                let gsub = GossipSub(application: app, configuration: configuration, parameters: parameters)
                 app.lifecycle.use(gsub)
                 return gsub
             }
         }
     }
 
+    @available(*, deprecated, renamed: "gossipsub(configuration:parameters:)")
     public static func gossipsub(emitSelf: Bool) -> Self {
-        .init {
-            $0.pubsub.use { app -> GossipSub in
-                let gsub = try! GossipSub(group: app.eventLoopGroup, libp2p: app, emitSelf: emitSelf)
-                app.lifecycle.use(gsub)
-                return gsub
-            }
-        }
+        .gossipsub(configuration: .init(emitSelf: emitSelf))
     }
 }
 
 extension Application.PubSubServices {
-
     public var gossipsub: GossipSub {
         guard let gsub = self.service(for: GossipSub.self) else {
             fatalError(
@@ -46,26 +53,4 @@ extension Application.PubSubServices {
         }
         return gsub
     }
-
-    //    public var gossipsub: GossipSub {
-    //        let lock = self.application.locks.lock(for: Key.self)
-    //        lock.lock()
-    //        defer { lock.unlock() }
-    //        if let existing = self.application.storage[Key.self] {
-    //            return existing
-    //        }
-    //        let new = ClientBootstrap(group: self.application.eventLoopGroup)
-    //            // Enable SO_REUSEADDR.
-    //            .channelOption(ChannelOptions.socketOption(.so_reuseaddr), value: 1)
-    //            .channelInitializer { channel in
-    //                // Do we install the upgrader here or do we let the Connection install the handlers???
-    //                //channel.pipeline.addHandlers(upgrader.channelHandlers(mode: .initiator)) // The MSS Handler itself needs to have access to the Connection Delegate
-    //                channel.eventLoop.makeSucceededVoidFuture()
-    //            }
-    //
-    //        self.application.storage.set(Key.self, to: new)
-    //
-    //        return new
-    //    }
-
 }
