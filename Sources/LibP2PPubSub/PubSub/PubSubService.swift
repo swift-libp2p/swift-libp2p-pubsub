@@ -75,10 +75,12 @@ public class PubSubService: @unchecked Sendable {
         /// Connects to a peer the router asked for (ex: a direct peer, or one suggested via peer exchange).
         /// We connect by opening an identify stream, once the peer's identified our discovery opens a stream using the best
         /// protocol it supports, exactly as it does for any other peer.
+        /// A verified peer record (from PX) is added to our peer store first, so we know where to find the peer.
         let dialLogger = logger
-        let dialer: @Sendable (PeerID) async -> Void = { [weak application] peer in
+        let dialer: @Sendable (PeerID, PeerRecord?) async -> Void = { [weak application] peer, record in
             guard let application else { return }
             do {
+                if let record { try await application.peers.add(record: record) }
                 if let address = knownAddresses[peer] {
                     try await application.newStream(to: address, forProtocol: "/ipfs/id/1.0.0")
                 } else {
@@ -111,7 +113,7 @@ public class PubSubService: @unchecked Sendable {
         /// Learn about peers that support our protocols as they're identified. The engine consumes these events from a
         /// single stream (so they're handled in order) for as long as it's running, and the subscription ends when it stops.
         self.peerEvents = { [weak application] in
-            application?.events.subscribe(to: [.remotePeerProtocolChange])
+            application?.events.subscribe(to: [.remotePeerProtocolChange, .identifiedPeer])
         }
     }
 
