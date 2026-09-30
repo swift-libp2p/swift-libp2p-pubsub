@@ -265,7 +265,9 @@ struct GossipSubRouter: PubSubRouter {
         var exchanged: [PeerID] = []
         if peerExchange && self.parameters.peerExchange {
             /// we never suggest peers with a negative score
-            let candidates = self.gossipPeers(subscribedTo: topic).subtracting([peer]).filter { self.score(of: $0) >= 0 }
+            let candidates = self.gossipPeers(subscribedTo: topic).subtracting([peer]).filter {
+                self.score(of: $0) >= 0
+            }
             exchanged = Array(candidates.shuffled().prefix(self.parameters.prunePeers))
         }
         /// Attach the suggested peers' signed records (when we have them), so the peer can connect to them
@@ -362,12 +364,15 @@ struct GossipSubRouter: PubSubRouter {
 
     /// A new message is about to be validated, start tracking its deliveries, fulfill any promises of it, and tell our
     /// GossipSub v1.2 mesh peers not to send us this (large) message, since we already have it
-    mutating func received(_ message: RPC.Message, id: Data, topic: String, from source: PeerID, now: Instant) -> Outbox {
+    mutating func received(_ message: RPC.Message, id: Data, topic: String, from source: PeerID, now: Instant) -> Outbox
+    {
         self.scores?.validationStarted(id, topic: topic, now: now)
         self.promises.removeValue(forKey: id)
 
         var outbox = Outbox()
-        guard message.data.count >= self.parameters.dontWantThreshold, let mesh = self.mesh[topic] else { return outbox }
+        guard message.data.count >= self.parameters.dontWantThreshold, let mesh = self.mesh[topic] else {
+            return outbox
+        }
         for peer in mesh where peer != source && !(message.from == peer) {
             guard self.peers[peer]?.protocolKind.supportsDontWant ?? false else { continue }
             outbox.dontWant([id], to: peer)
@@ -412,7 +417,9 @@ struct GossipSubRouter: PubSubRouter {
         /// We neither answer, nor act on, the gossip of peers below our gossip threshold
         guard self.scoreMeets(peer, \.gossipThreshold) else { return outbox }
         var reply = RPC.ControlMessage()
-        if let iWant = self.handleIHaves(control.ihave, from: peer, hasSeen: hasSeen, now: now) { reply.iwant = [iWant] }
+        if let iWant = self.handleIHaves(control.ihave, from: peer, hasSeen: hasSeen, now: now) {
+            reply.iwant = [iWant]
+        }
         if !reply.iwant.isEmpty { outbox.send(control: reply, to: peer) }
         outbox.send(messages: self.handleIWants(control.iwant, from: peer), to: peer)
         return outbox
@@ -424,7 +431,12 @@ struct GossipSubRouter: PubSubRouter {
     /// - it's backed off: we penalize it (twice if it's flooding us with GRAFTs) and PRUNE it (extending its backoff), without PX
     /// - it has a negative score: we PRUNE it, without PX
     /// - our mesh is full and it's an inbound peer: we PRUNE it, with PX
-    private mutating func handleGrafts(_ grafts: [RPC.ControlGraft], from peer: PeerID, now: Instant, into outbox: inout Outbox) {
+    private mutating func handleGrafts(
+        _ grafts: [RPC.ControlGraft],
+        from peer: PeerID,
+        now: Instant,
+        into outbox: inout Outbox
+    ) {
         for graft in grafts where graft.hasTopicID {
             let topic = graft.topicID
             guard let mesh = self.mesh[topic], !mesh.contains(peer) else { continue }
@@ -458,21 +470,30 @@ struct GossipSubRouter: PubSubRouter {
     /// accept PX threshold) connect to the peers it suggested.
     /// Like go-libp2p-pubsub, a suggested peer with an invalid signed record (or one belonging to another peer) is ignored,
     /// and a suggested peer without a record is dialed using the addresses in our peer store.
-    private mutating func handlePrunes(_ prunes: [RPC.ControlPrune], from peer: PeerID, now: Instant, into outbox: inout Outbox) {
+    private mutating func handlePrunes(
+        _ prunes: [RPC.ControlPrune],
+        from peer: PeerID,
+        now: Instant,
+        into outbox: inout Outbox
+    ) {
         for prune in prunes where prune.hasTopicID {
             self.removeFromMesh(peer, topic: prune.topicID)
-            let requested = prune.hasBackoff && prune.backoff > 0 ? Duration.seconds(Int64(clamping: prune.backoff)) : nil
+            let requested =
+                prune.hasBackoff && prune.backoff > 0 ? Duration.seconds(Int64(clamping: prune.backoff)) : nil
             self.addBackoff(peer, topic: prune.topicID, duration: requested ?? self.parameters.pruneBackoff, now: now)
 
             guard self.parameters.peerExchange, self.scoreMeets(peer, \.acceptPXThreshold) else { continue }
             for info in prune.peers.prefix(self.parameters.prunePeers) {
-                guard let suggested = try? PeerID(fromBytesID: info.peerID.byteArray), suggested != peer else { continue }
+                guard let suggested = try? PeerID(fromBytesID: info.peerID.byteArray), suggested != peer else {
+                    continue
+                }
                 guard self.peers[suggested] == nil else { continue }
                 guard info.hasSignedPeerRecord else {
                     outbox.dial(suggested)
                     continue
                 }
-                guard let signed = try? SignedPeerRecord(envelope: info.signedPeerRecord), signed.peer == suggested else {
+                guard let signed = try? SignedPeerRecord(envelope: info.signedPeerRecord), signed.peer == suggested
+                else {
                     continue
                 }
                 outbox.dial(suggested, record: signed.record)
@@ -706,7 +727,9 @@ struct GossipSubRouter: PubSubRouter {
     private func emitGossip(for topic: String, into outbox: inout Outbox) {
         var ids = self.messageCache.gossipIDs(for: topic)
         guard !ids.isEmpty else { return }
-        if ids.count > self.parameters.maxIHaveLength { ids = Array(ids.shuffled().prefix(self.parameters.maxIHaveLength)) }
+        if ids.count > self.parameters.maxIHaveLength {
+            ids = Array(ids.shuffled().prefix(self.parameters.maxIHaveLength))
+        }
 
         /// the peers that already receive full messages for this topic don't need gossip
         let fullPeers = self.mesh[topic] ?? self.fanout[topic] ?? []

@@ -54,7 +54,7 @@ public struct PeerScoreParameterError: Error, CustomStringConvertible, Equatable
 /// They must satisfy `graylistThreshold <= publishThreshold <= gossipThreshold <= 0`, while `acceptPXThreshold` and
 /// `opportunisticGraftThreshold` must be non-negative.
 public struct PeerScoreThresholds: Sendable, Equatable {
-    
+
     /// Below this score we don't gossip to the peer, and ignore its gossip (IHAVE / IWANT)
     public var gossipThreshold: Double
 
@@ -85,8 +85,9 @@ public struct PeerScoreThresholds: Sendable, Equatable {
     }
 
     func validate() throws {
-        guard [gossipThreshold, publishThreshold, graylistThreshold, acceptPXThreshold, opportunisticGraftThreshold]
-            .allSatisfy(\.isFinite)
+        guard
+            [gossipThreshold, publishThreshold, graylistThreshold, acceptPXThreshold, opportunisticGraftThreshold]
+                .allSatisfy(\.isFinite)
         else { throw PeerScoreParameterError("Score thresholds must be finite") }
         guard gossipThreshold <= 0 else { throw PeerScoreParameterError("gossipThreshold must be <= 0") }
         guard publishThreshold <= gossipThreshold else {
@@ -111,7 +112,7 @@ public struct PeerScoreThresholds: Sendable, Equatable {
 ///       + P7 * behaviourPenaltyWeight
 /// ```
 public struct PeerScoreParameters: Sendable {
-    
+
     /// The scoring parameters for each scored topic. Topics without parameters don't contribute to a peer's score.
     public var topics: [String: TopicScoreParameters]
 
@@ -191,9 +192,15 @@ public struct PeerScoreParameters: Sendable {
         if behaviourPenaltyWeight != 0 && !(0 < behaviourPenaltyDecay && behaviourPenaltyDecay < 1) {
             throw PeerScoreParameterError("behaviourPenaltyDecay must be between 0 and 1")
         }
-        guard behaviourPenaltyThreshold >= 0 else { throw PeerScoreParameterError("behaviourPenaltyThreshold must be >= 0") }
-        guard decayInterval >= .seconds(1) else { throw PeerScoreParameterError("decayInterval must be at least 1 second") }
-        guard 0 < decayToZero && decayToZero < 1 else { throw PeerScoreParameterError("decayToZero must be between 0 and 1") }
+        guard behaviourPenaltyThreshold >= 0 else {
+            throw PeerScoreParameterError("behaviourPenaltyThreshold must be >= 0")
+        }
+        guard decayInterval >= .seconds(1) else {
+            throw PeerScoreParameterError("decayInterval must be at least 1 second")
+        }
+        guard 0 < decayToZero && decayToZero < 1 else {
+            throw PeerScoreParameterError("decayToZero must be between 0 and 1")
+        }
         guard retainScore >= .zero else { throw PeerScoreParameterError("retainScore can't be negative") }
     }
 }
@@ -210,7 +217,7 @@ public struct PeerScoreParameters: Sendable {
 ///
 /// - Note: P3 and P3b (mesh message delivery rates) depend heavily on a topic's message rate, so they're disabled by default.
 public struct TopicScoreParameters: Sendable, Equatable {
-    
+
     /// How much this topic contributes to the peer's score. Must be non-negative.
     public var topicWeight: Double
 
@@ -311,7 +318,9 @@ public struct TopicScoreParameters: Sendable, Equatable {
             guard isDecay(meshMessageDeliveriesDecay) else {
                 throw PeerScoreParameterError("meshMessageDeliveriesDecay must be between 0 and 1")
             }
-            guard meshMessageDeliveriesCap > 0 else { throw PeerScoreParameterError("meshMessageDeliveriesCap must be positive") }
+            guard meshMessageDeliveriesCap > 0 else {
+                throw PeerScoreParameterError("meshMessageDeliveriesCap must be positive")
+            }
             guard meshMessageDeliveriesThreshold > 0 else {
                 throw PeerScoreParameterError("meshMessageDeliveriesThreshold must be positive")
             }

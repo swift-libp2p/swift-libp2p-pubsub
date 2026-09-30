@@ -16,7 +16,7 @@ import LibP2P
 
 /// Describes how we participate in a topic, which messages we accept and how we identify them.
 public struct TopicConfiguration: Sendable {
-    
+
     /// The topic string
     public var topic: String
 

@@ -200,7 +200,10 @@ public struct GossipSubParameters: Sendable {
         precondition(prunePeers >= 0, "GossipSub's prune peers can't be negative")
         precondition(directConnectTicks > 0, "GossipSub's direct connect ticks must be greater than zero")
         precondition(dontWantThreshold >= 0 && dontWantTTL > 0, "GossipSub's IDONTWANT threshold and TTL are invalid")
-        precondition(maxDontWantMessages > 0 && maxDontWantLength > 0, "GossipSub's IDONTWANT limits must be greater than zero")
+        precondition(
+            maxDontWantMessages > 0 && maxDontWantLength > 0,
+            "GossipSub's IDONTWANT limits must be greater than zero"
+        )
         self.outboundDegree = outboundDegree
         self.pruneBackoff = pruneBackoff
         self.unsubscribeBackoff = unsubscribeBackoff
@@ -222,8 +225,14 @@ public struct GossipSubParameters: Sendable {
             0 <= meshDegreeScore && meshDegreeScore <= meshDegree,
             "GossipSub's score retention must satisfy 0 <= D_score <= D"
         )
-        precondition(opportunisticGraftTicks > 0 && opportunisticGraftPeers >= 0, "GossipSub's opportunistic grafting is invalid")
-        precondition(graftFloodThreshold >= .zero && iWantFollowupTime > .zero, "GossipSub's scoring durations are invalid")
+        precondition(
+            opportunisticGraftTicks > 0 && opportunisticGraftPeers >= 0,
+            "GossipSub's opportunistic grafting is invalid"
+        )
+        precondition(
+            graftFloodThreshold >= .zero && iWantFollowupTime > .zero,
+            "GossipSub's scoring durations are invalid"
+        )
         self.scoring = scoring
         self.meshDegreeScore = meshDegreeScore
         self.opportunisticGraftTicks = opportunisticGraftTicks

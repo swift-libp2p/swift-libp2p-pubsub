@@ -116,10 +116,10 @@ struct PeerScore {
                 let quanta = (topicStats.meshTime / parameters.timeInMeshQuantum).rounded(.down)
                 topicScore += min(quanta, parameters.timeInMeshCap) * parameters.timeInMeshWeight
             }
-            
+
             /// P2: first message deliveries
             topicScore += topicStats.firstMessageDeliveries * parameters.firstMessageDeliveriesWeight
-            
+
             /// P3: mesh message delivery deficit
             if topicStats.meshMessageDeliveriesActive,
                 topicStats.meshMessageDeliveries < parameters.meshMessageDeliveriesThreshold
@@ -127,12 +127,13 @@ struct PeerScore {
                 let deficit = parameters.meshMessageDeliveriesThreshold - topicStats.meshMessageDeliveries
                 topicScore += deficit * deficit * parameters.meshMessageDeliveriesWeight
             }
-            
+
             /// P3b: mesh failure penalty
             topicScore += topicStats.meshFailurePenalty * parameters.meshFailurePenaltyWeight
-            
+
             /// P4: invalid messages
-            topicScore += topicStats.invalidMessageDeliveries * topicStats.invalidMessageDeliveries
+            topicScore +=
+                topicStats.invalidMessageDeliveries * topicStats.invalidMessageDeliveries
                 * parameters.invalidMessageDeliveriesWeight
 
             score += topicScore * parameters.topicWeight
@@ -335,7 +336,12 @@ struct PeerScore {
     }
 
     /// Mesh peers get credit for deliveries within `meshMessageDeliveriesWindow` of the message being validated
-    private mutating func markDuplicateMessageDelivery(by peer: PeerID, topic: String, validated: Instant?, now: Instant) {
+    private mutating func markDuplicateMessageDelivery(
+        by peer: PeerID,
+        topic: String,
+        validated: Instant?,
+        now: Instant
+    ) {
         guard let parameters = self.parameters.topics[topic] else { return }
         if let validated, validated.duration(to: now) > parameters.meshMessageDeliveriesWindow { return }
         self.updateTopicStats(of: peer, topic: topic) { stats in

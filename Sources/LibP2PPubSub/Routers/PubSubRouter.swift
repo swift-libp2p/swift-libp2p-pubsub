@@ -76,7 +76,13 @@ protocol PubSubRouter: Sendable {
     ///
     /// - Parameter source: The peer that forwarded the message to us, or `nil` if we're publishing it.
     /// - Note: The engine never sends a message back to its `source` or to its author, so routers don't need to exclude them.
-    mutating func route(_ message: RPC.Message, id: Data, topic: String, from source: PeerID?, now: Instant) -> Set<PeerID>
+    mutating func route(
+        _ message: RPC.Message,
+        id: Data,
+        topic: String,
+        from source: PeerID?,
+        now: Instant
+    ) -> Set<PeerID>
 
     /// Handles the control messages (GRAFT, PRUNE, IHAVE, IWANT, ...) in an inbound RPC
     mutating func handleControl(
@@ -97,7 +103,8 @@ extension PubSubRouter {
 
     mutating func addSignedPeerRecord(_ record: SignedPeerRecord) {}
 
-    mutating func received(_ message: RPC.Message, id: Data, topic: String, from source: PeerID, now: Instant) -> Outbox {
+    mutating func received(_ message: RPC.Message, id: Data, topic: String, from source: PeerID, now: Instant) -> Outbox
+    {
         Outbox()
     }
 
