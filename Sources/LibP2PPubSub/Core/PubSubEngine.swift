@@ -417,8 +417,10 @@ actor PubSubEngine {
         }
     }
 
-    /// - Parameter outbound: Whether we dialed the connection this stream is on
-    private func attachWriter(to peer: PeerID, protocolID: String, outbound: Bool) -> Writer? {
+    /// - Parameters:
+    ///   - outbound: Whether we dialed the connection this stream is on
+    ///   - ip: The IP address of the peer's end of the connection
+    private func attachWriter(to peer: PeerID, protocolID: String, outbound: Bool, ip: String?) -> Writer? {
         guard self.isRunning else { return nil }
         var state = self.peers[peer] ?? PeerState(bufferSize: self.configuration.outboundQueueSize)
         guard state.writer == nil else { return nil }
@@ -426,7 +428,7 @@ actor PubSubEngine {
         state.writer = token
         self.peers[peer] = state
         /// The router needs to know what protocol this peer is speaking, so pass it along...
-        self.router.addPeer(peer, protocolID: protocolID, outbound: outbound)
+        self.router.addPeer(peer, protocolID: protocolID, outbound: outbound, ip: ip)
         return Writer(token: token, queue: state.queue, hello: self.helloFrame())
     }
 
@@ -445,7 +447,13 @@ actor PubSubEngine {
 
     private func removePeer(_ peer: PeerID) {
         self.peers.removeValue(forKey: peer)?.continuation.finish()
-        self.router.removePeer(peer)
+        self.router.removePeer(peer, now: self.clock.now)
+    }
+
+    /// The IP address of the remote end of a connection (used to score IP colocation)
+    private nonisolated static func ipAddress(of connection: Connection) -> String? {
+        guard let address = connection.remoteAddr else { return nil }
+        return (address.getFirstAddress(forCodec: .ip4) ?? address.getFirstAddress(forCodec: .ip6))?.addr
     }
 
     private func openOutboundStream(_ protocolID: String, on connection: Connection) {
