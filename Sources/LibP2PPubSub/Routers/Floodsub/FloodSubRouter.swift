@@ -26,10 +26,10 @@ struct FloodSubRouter: PubSubRouter {
     }
 
     /// Every FloodSub peer is treated the same, regardless of protocol
-    mutating func addPeer(_ peer: PeerID, protocolID: String, outbound: Bool) {}
+    mutating func addPeer(_ peer: PeerID, protocolID: String, outbound: Bool, ip: String?) {}
 
     /// Remove the peer from the topics membership
-    mutating func removePeer(_ peer: PeerID) {
+    mutating func removePeer(_ peer: PeerID, now: Instant) {
         self.membership.remove(peer)
     }
 
