@@ -361,7 +361,8 @@ actor PubSubEngine {
     /// Writes our queued RPCs to `peer`, until the stream closes or the peer is removed
     private nonisolated func runOutbound(_ stream: LibP2PStream, to peer: PeerID) async {
         let outbound = stream.connection.direction == .outbound
-        guard let writer = await self.attachWriter(to: peer, protocolID: stream.protocol, outbound: outbound) else {
+        let ip = Self.ipAddress(of: stream.connection)
+        guard let writer = await self.attachWriter(to: peer, protocolID: stream.protocol, outbound: outbound, ip: ip) else {
             self.logger.debug("Closing a redundant outbound stream to \(peer)")
             return
         }
@@ -393,7 +394,12 @@ actor PubSubEngine {
         self.peers[peer] = state
         if state.writer == nil {
             /// Until we open our own stream, assume the peer speaks the protocol it chose for its stream
-            self.router.addPeer(peer, protocolID: protocolID, outbound: connection.direction == .outbound)
+            self.router.addPeer(
+                peer,
+                protocolID: protocolID,
+                outbound: connection.direction == .outbound,
+                ip: Self.ipAddress(of: connection)
+            )
             /// Make sure we have a mirrored, write side, stream to this peer (for the same protocol)
             /// Ou peerEvent / protocol change event will check before opening another stream for the same protocol
             self.openOutboundStream(protocolID, on: connection)
