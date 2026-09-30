@@ -656,16 +656,20 @@ actor PubSubEngine {
 
     private func flush(_ outbox: Outbox) {
         for (peer, rpc) in outbox.rpcs { self.send(rpc, to: peer) }
-        for peer in outbox.dials { self.dial(peer) }
+        for peer in outbox.dials { self.dial(peer, record: outbox.dialRecords[peer]) }
+    }
+
+    private func addSignedPeerRecord(_ record: SignedPeerRecord) {
+        self.router.addSignedPeerRecord(record)
     }
 
     /// Connects to a peer the router asked for, unless we're already connected to (or dialing) it
-    private func dial(_ peer: PeerID) {
+    private func dial(_ peer: PeerID, record: PeerRecord?) {
         guard let dialer = self.dialer, peer != self.localPeer, self.peers[peer] == nil else { return }
         guard self.pendingDials.insert(peer).inserted else { return }
         self.logger.debug("Connecting to \(peer)")
         Task { [weak self] in
-            await dialer(peer)
+            await dialer(peer, record)
             await self?.dialFinished(peer)
         }
     }
