@@ -71,9 +71,12 @@ actor PubSubEngine {
     /// Connects to peers the router asks for (ex: direct peers, or peers suggested via peer exchange)
     /// The peer's (verified) record, when we have one, tells the dialer where to find it.
     private let dialer: (@Sendable (PeerID, PeerRecord?) async -> Void)?
-    
+
     /// The peers we're currently dialing
     private var pendingDials: Set<PeerID> = []
+
+    /// The IDs of the messages currently being validated
+    private var validating: Set<Data> = []
 
     init(
         protocolIDs: [String],
@@ -362,7 +365,8 @@ actor PubSubEngine {
     private nonisolated func runOutbound(_ stream: LibP2PStream, to peer: PeerID) async {
         let outbound = stream.connection.direction == .outbound
         let ip = Self.ipAddress(of: stream.connection)
-        guard let writer = await self.attachWriter(to: peer, protocolID: stream.protocol, outbound: outbound, ip: ip) else {
+        guard let writer = await self.attachWriter(to: peer, protocolID: stream.protocol, outbound: outbound, ip: ip)
+        else {
             self.logger.debug("Closing a redundant outbound stream to \(peer)")
             return
         }
@@ -483,6 +487,11 @@ actor PubSubEngine {
     /// Processes one inbound RPC (subscription changes, then control messages, then published messages).
     func handle(_ frame: ByteBuffer, from peer: PeerID) async {
         guard self.isRunning else { return }
+        /// Ignore graylisted peers entirely (ex: a GossipSub peer whose score is below our graylist threshold)
+        guard self.router.accepts(rpcFrom: peer) else {
+            self.logger.debug("Ignoring an RPC from graylisted peer \(peer)")
+            return
+        }
         let rpc: RPC
         do {
             rpc = try RPC(serializedBytes: Array(frame.readableBytesView))
@@ -494,7 +503,9 @@ actor PubSubEngine {
         /// Like go-libp2p-pubsub, an RPC announcing more subscriptions than our filter allows is ignored entirely
         let filter = self.configuration.subscriptionFilter
         if let limit = filter.maxSubscriptionsPerRPC, rpc.subscriptions.count > limit {
-            self.logger.warning("Dropping an RPC from \(peer) announcing \(rpc.subscriptions.count) subscriptions (limit \(limit))")
+            self.logger.warning(
+                "Dropping an RPC from \(peer) announcing \(rpc.subscriptions.count) subscriptions (limit \(limit))"
+            )
             return
         }
 
@@ -526,28 +537,53 @@ actor PubSubEngine {
             /// We only process messages for topics we're subscribed to
             guard let topic = message.topicIds.first, let state = self.topics[topic] else { continue }
 
+            let id = state.messageID.id(for: message)
+
             if let violation = MessageSigning.check(message, against: state.signaturePolicy) {
                 self.logger.debug(
                     "Dropping a `\(topic)` message from \(peer) that violates the signature policy: \(violation)"
                 )
+                self.router.rejected(
+                    message,
+                    id: id,
+                    topic: topic,
+                    from: peer,
+                    reason: .invalidSignature,
+                    now: self.clock.now
+                )
                 continue
             }
             /// Drop our own messages if a peer echoes them back to us
-            if !message.from.isEmpty, message.from == self.localPeer { continue }
+            if !message.from.isEmpty, message.from == self.localPeer {
+                self.router.rejected(
+                    message,
+                    id: id,
+                    topic: topic,
+                    from: peer,
+                    reason: .selfOrigin,
+                    now: self.clock.now
+                )
+                continue
+            }
 
-            let id = state.messageID.id(for: message)
-            guard !self.seen.contains(id) else { continue }
+            /// Drop messages we've already seen, or are currently validating (a copy delivered by another peer)
+            guard !self.seen.contains(id), !self.validating.contains(id) else {
+                self.router.duplicate(message, id: id, topic: topic, from: peer, now: self.clock.now)
+                continue
+            }
 
             /// Give the router a chance to act before validation (ex: telling our mesh peers not to send us duplicates)
-            self.flush(self.router.received(message, id: id, topic: topic, from: peer))
+            self.flush(self.router.received(message, id: id, topic: topic, from: peer, now: self.clock.now))
 
             /// Validation happens off the actor (validators may be slow)
+            self.validating.insert(id)
             let result = await Self.validate(
                 message,
                 from: peer,
                 validators: state.registrations.values.map(\.validator),
                 timeout: self.configuration.validationTimeout
             )
+            self.validating.remove(id)
             guard result == .accept else {
                 self.logger.debug("Dropping a `\(topic)` message from \(peer) that failed validation (\(result))")
                 let reason: MessageRejection =
