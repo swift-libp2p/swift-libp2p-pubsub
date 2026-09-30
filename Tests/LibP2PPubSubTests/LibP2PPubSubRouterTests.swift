@@ -833,4 +833,151 @@ struct LibP2PPubSubRouterTests {
         #expect(fragments[0].subscriptions.count == 1 && fragments[0].msgs.isEmpty)
         #expect(fragments.allSatisfy { ((try? $0.serializedData().count) ?? .max) <= 1_000 })
     }
+
+    //  MARK: - Peer Records
+
+    /// A marshaled signed peer record envelope for `peer`, signed by `signer`
+    private static func envelope(for peer: PeerID, signedBy signer: PeerID? = nil, port: Int = 4001) throws -> Data {
+        let record = PeerRecord(peerID: peer, multiaddrs: [try Multiaddr("/ip4/127.0.0.1/tcp/\(port)")])
+        return Data(try record.seal(withPrivateKey: signer ?? peer).marshal())
+    }
+
+    /// A serialized identify message carrying the fields we read (protocols and the signed peer record), plus one we skip
+    private static func identify(protocols: [String], envelope: Data) -> [UInt8] {
+        func field(_ number: UInt8, _ value: [UInt8]) -> [UInt8] {
+            var length = UInt64(value.count)
+            var bytes: [UInt8] = [number << 3 | 2]
+            repeat {
+                bytes.append(UInt8(length & 0x7F) | (length > 0x7F ? 0x80 : 0))
+                length >>= 7
+            } while length > 0
+            return bytes + value
+        }
+        return field(5, Array("ipfs/0.1.0".utf8))
+            + protocols.flatMap { field(3, Array($0.utf8)) }
+            + field(8, Array(envelope))
+    }
+
+    /// Signed peer records are verified, and must belong to the peer that signed them (and, via identify, the identified peer)
+    @Test func testSignedPeerRecordVerification() throws {
+        let peer = try PeerID(.Ed25519)
+        let imposter = try PeerID(.Ed25519)
+
+        let signed = try SignedPeerRecord(envelope: Self.envelope(for: peer))
+        #expect(signed.peer == peer)
+        #expect(signed.record.multiaddrs == [try Multiaddr("/ip4/127.0.0.1/tcp/4001")])
+
+        /// A tampered signature, or a record signed by another peer, is rejected
+        var tampered = try Self.envelope(for: peer)
+        tampered[tampered.count - 1] ^= 0xFF
+        #expect(throws: (any Error).self) { try SignedPeerRecord(envelope: tampered) }
+        #expect(throws: (any Error).self) {
+            try SignedPeerRecord(envelope: Self.envelope(for: peer, signedBy: imposter))
+        }
+
+        /// Identify messages: the record must belong to the identified peer, who must speak one of our protocols
+        let message = Self.identify(
+            protocols: ["/ipfs/ping/1.0.0", GossipSub.v1_1],
+            envelope: try Self.envelope(for: peer)
+        )
+        #expect(
+            SignedPeerRecord(identify: message, from: peer, speakingAnyOf: [GossipSub.v1_2, GossipSub.v1_1])?.peer
+                == peer
+        )
+        #expect(SignedPeerRecord(identify: message, from: imposter, speakingAnyOf: [GossipSub.v1_1]) == nil)
+        #expect(SignedPeerRecord(identify: message, from: peer, speakingAnyOf: ["/floodsub/1.0.0"]) == nil)
+        #expect(
+            SignedPeerRecord(identify: Array(message.dropLast()), from: peer, speakingAnyOf: [GossipSub.v1_1]) == nil
+        )
+    }
+
+    /// The record book keeps each peer's most recent record, and makes room by forgetting peers we're not connected to
+    @Test func testSignedPeerRecordBook() throws {
+        let peers = try Self.peers(3)
+        func signed(_ peer: PeerID, sequenceNumber: UInt64, port: Int = 4001) throws -> SignedPeerRecord {
+            let record = PeerRecord(
+                peerID: peer,
+                multiaddrs: [try Multiaddr("/ip4/127.0.0.1/tcp/\(port)")],
+                sequenceNumber: sequenceNumber
+            )
+            return try SignedPeerRecord(envelope: Data(record.seal(withPrivateKey: peer).marshal()))
+        }
+
+        var book = SignedPeerRecordBook(capacity: 2)
+        book.insert(try signed(peers[0], sequenceNumber: 2), connected: [])
+        book.insert(try signed(peers[0], sequenceNumber: 1, port: 1), connected: [])
+        #expect(book[peers[0]]?.record.sequenceNumber == 2)
+        book.insert(try signed(peers[0], sequenceNumber: 3), connected: [])
+        #expect(book[peers[0]]?.record.sequenceNumber == 3)
+
+        /// Full of connected peers' records, new records are dropped. Otherwise disconnected peers' records are forgotten.
+        book.insert(try signed(peers[1], sequenceNumber: 1), connected: [])
+        book.insert(try signed(peers[2], sequenceNumber: 1), connected: [peers[0], peers[1]])
+        #expect(book[peers[2]] == nil)
+        book.insert(try signed(peers[2], sequenceNumber: 1), connected: [peers[1]])
+        #expect(Set(book.records.keys) == [peers[1], peers[2]])
+    }
+
+    /// PX carries the signed records we hold for the peers we suggest, and the records we receive are verified before we dial
+    @Test func testPeerExchangeWithSignedPeerRecords() throws {
+        let peers = try Self.peers(14)
+        var router = Self.gossipRouter(
+            peers: peers,
+            parameters: .init(floodPublish: false, peerExchange: true, prunePeers: 4)
+        )
+        #expect(router.wantsSignedPeerRecords)
+        #expect(!Self.gossipRouter(peers: peers).wantsSignedPeerRecords)
+        for peer in peers {
+            router.addPeer(peer, protocolID: GossipSub.v1_1, outbound: true, ip: nil)
+            router.addSignedPeerRecord(try SignedPeerRecord(envelope: Self.envelope(for: peer)))
+        }
+        _ = router.join("fruit", now: .now)
+        for peer in peers {
+            _ = router.handleControl(
+                .with { $0.graft = [.with { $0.topicID = "fruit" }] },
+                from: peer,
+                hasSeen: { _ in false },
+                now: .now
+            )
+        }
+
+        /// Every suggested peer carries its own signed record
+        let suggested = router.heartbeat(now: .now).rpcs.values.compactMap(\.control.prune.first).flatMap(\.peers)
+        #expect(suggested.count == 32)
+        for info in suggested {
+            #expect(info.hasSignedPeerRecord)
+            #expect(
+                try SignedPeerRecord(envelope: info.signedPeerRecord).peer == PeerID(fromBytesID: info.peerID.byteArray)
+            )
+        }
+
+        /// We dial suggested peers with valid records, passing the record along, and ignore those with invalid ones
+        let (stranger, imposter, unsigned) = (try PeerID(.Ed25519), try PeerID(.Ed25519), try PeerID(.Ed25519))
+        let outbox = router.handleControl(
+            .with {
+                $0.prune = [
+                    .with { prune in
+                        prune.topicID = "fruit"
+                        prune.peers = [
+                            .with {
+                                $0.peerID = Data(stranger.id)
+                                $0.signedPeerRecord = (try? Self.envelope(for: stranger, port: 4002)) ?? Data()
+                            },
+                            .with {
+                                $0.peerID = Data(imposter.id)
+                                $0.signedPeerRecord = (try? Self.envelope(for: stranger)) ?? Data()
+                            },
+                            .with { $0.peerID = Data(unsigned.id) },
+                        ]
+                    }
+                ]
+            },
+            from: peers[0],
+            hasSeen: { _ in false },
+            now: .now
+        )
+        #expect(outbox.dials == [stranger, unsigned])
+        #expect(outbox.dialRecords[stranger]?.multiaddrs == [try Multiaddr("/ip4/127.0.0.1/tcp/4002")])
+        #expect(outbox.dialRecords[unsigned] == nil)
+    }
 }
