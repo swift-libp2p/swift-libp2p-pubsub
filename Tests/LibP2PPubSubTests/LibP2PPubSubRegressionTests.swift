@@ -13,15 +13,13 @@
 //===----------------------------------------------------------------------===//
 
 import LibP2P
-import LibP2PNoise
-import LibP2PYAMUX
 import NIOConcurrencyHelpers
 import Testing
 
 @testable import LibP2PPubSub
 
 @Suite("Libp2p PubSub Regression Tests", .timeLimit(.minutes(5)), .serialized)
-final class LibP2PPubSubRegressionTests {
+struct LibP2PPubSubRegressionTests {
 
     // MARK: - Helpers
 
@@ -141,7 +139,9 @@ final class LibP2PPubSubRegressionTests {
         let peer = try PeerID(.Ed25519)
         router.handleSubscription(from: peer, topic: "news", subscribed: true)
 
-        #expect(router.route(Self.makeMessage(data: "banana"), id: Data(), topic: "news", from: nil, now: .now) == [peer])
+        #expect(
+            router.route(Self.makeMessage(data: "banana"), id: Data(), topic: "news", from: nil, now: .now) == [peer]
+        )
 
         router.removePeer(peer, now: .now)
         #expect(router.route(Self.makeMessage(data: "banana"), id: Data(), topic: "news", from: nil, now: .now).isEmpty)
@@ -241,6 +241,14 @@ final class LibP2PPubSubRegressionTests {
                 == .invalidTopicCount(0)
         )
     }
+}
+
+#if TestDependencies
+
+import LibP2PNoise
+import LibP2PYAMUX
+
+extension LibP2PPubSubRegressionTests {
 
     // MARK: - GossipSub Subscriptions
 
@@ -354,6 +362,7 @@ final class LibP2PPubSubRegressionTests {
         return lib
     }
 }
+#endif
 
 extension Sequence {
     func asyncMap<T>(_ transform: (Element) async throws -> T) async rethrows -> [T] {

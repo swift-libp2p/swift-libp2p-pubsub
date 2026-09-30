@@ -12,6 +12,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#if TestDependencies
 import LibP2P
 import LibP2PNoise
 import LibP2PYAMUX
@@ -727,3 +728,4 @@ final class LibP2PPubSubFloodsubTests {
     }
 
 }
+#endif

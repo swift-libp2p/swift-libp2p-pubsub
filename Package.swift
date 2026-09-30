@@ -28,12 +28,20 @@ let package = Package(
             targets: ["LibP2PPubSub"]
         )
     ],
+    traits: [
+        // Not enabled by default, so consumers of this package never build / link the test only dependencies.
+        // Enable it to run the live networking tests: `swift test --traits TestDependencies`
+        .trait(
+            name: "TestDependencies",
+            description: "Enables the live networking tests, which depend on swift-libp2p-noise and swift-libp2p-yamux"
+        )
+    ],
     dependencies: [
         // Dependencies declare other packages that this package depends on.
         .package(url: "https://github.com/swift-libp2p/swift-libp2p.git", .upToNextMinor(from: "0.4.0")),
-        .package(url: "https://github.com/apple/swift-crypto.git", "3.0.0"..<"5.0.0"),
+        .package(url: "https://github.com/apple/swift-crypto.git", .upToNextMajor(from: "4.0.0")),
 
-        // Test dependencies
+        // Test dependencies (only used when the `TestDependencies` trait is enabled)
         .package(url: "https://github.com/swift-libp2p/swift-libp2p-noise.git", .upToNextMinor(from: "0.4.0")),
         .package(url: "https://github.com/swift-libp2p/swift-libp2p-yamux.git", .upToNextMinor(from: "0.4.0")),
     ],
@@ -54,8 +62,16 @@ let package = Package(
             name: "LibP2PPubSubTests",
             dependencies: [
                 "LibP2PPubSub",
-                .product(name: "LibP2PNoise", package: "swift-libp2p-noise"),
-                .product(name: "LibP2PYAMUX", package: "swift-libp2p-yamux"),
+                .product(
+                    name: "LibP2PNoise",
+                    package: "swift-libp2p-noise",
+                    condition: .when(traits: ["TestDependencies"])
+                ),
+                .product(
+                    name: "LibP2PYAMUX",
+                    package: "swift-libp2p-yamux",
+                    condition: .when(traits: ["TestDependencies"])
+                ),
             ]
         ),
     ]

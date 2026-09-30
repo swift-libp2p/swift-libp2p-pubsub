@@ -12,6 +12,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#if TestDependencies
 import LibP2P
 import LibP2PNoise
 import LibP2PYAMUX
@@ -133,7 +134,6 @@ final class LibP2PPubSubGossipsubTests {
 
             /// Dump the current state of our PeerStore
             node1.peers.dumpAll()
-
 
         } catch {
             Issue.record(error)
@@ -643,7 +643,6 @@ final class LibP2PPubSubGossipsubTests {
         print("Shutting down libp2p chat...")
         app.peers.dumpAll()
 
-
         try await app.asyncShutdown()
     }
 
@@ -662,3 +661,4 @@ final class LibP2PPubSubGossipsubTests {
         return lib
     }
 }
+#endif
