@@ -24,10 +24,14 @@ struct Outbox {
     /// Peers the router would like us to connect to (ex: direct peers we've lost, or peers learnt via PX)
     private(set) var dials: Set<PeerID> = []
 
+    /// The (verified) peer records we received for the peers we'd like to dial, which tell us where to find them
+    private(set) var dialRecords: [PeerID: PeerRecord] = [:]
+
     var isEmpty: Bool { self.rpcs.isEmpty && self.dials.isEmpty }
 
-    mutating func dial(_ peer: PeerID) {
+    mutating func dial(_ peer: PeerID, record: PeerRecord? = nil) {
         self.dials.insert(peer)
+        if let record { self.dialRecords[peer] = record }
     }
 
     mutating func send(_ rpc: RPC, to peer: PeerID) {
@@ -58,14 +62,27 @@ struct Outbox {
         )
     }
 
+    /// Record a Prune control message for `peer` on `topic`
     /// - Parameters:
-    ///   - backoff: GossipSub v1.1, how long the peer should wait before grafting us again (sent in whole seconds)
-    ///   - peers: GossipSub v1.1 peer exchange, other peers subscribed to the topic the pruned peer might graft instead
-    mutating func prune(_ topic: String, to peer: PeerID, backoff: Duration? = nil, peers: [PeerID] = []) {
+    ///   - backoff: How long the peer should wait before grafting us again (sent in whole seconds)
+    ///   - peers: The peers we suggest (PX, if peer exchange is enabled)
+    ///   - signedRecords: The signed peer record envelopes we have for (some of) the suggested peers
+    mutating func prune(
+        _ topic: String,
+        to peer: PeerID,
+        backoff: Duration? = nil,
+        peers: [PeerID] = [],
+        signedRecords: [PeerID: Data] = [:]
+    ) {
         let prune = RPC.ControlPrune.with { prune in
             prune.topicID = topic
             if let backoff { prune.backoff = UInt64(max(0, backoff.components.seconds)) }
-            prune.peers = peers.map { exchanged in .with { $0.peerID = Data(exchanged.id) } }
+            prune.peers = peers.map { exchanged in
+                .with { info in
+                    info.peerID = Data(exchanged.id)
+                    if let record = signedRecords[exchanged] { info.signedPeerRecord = record }
+                }
+            }
         }
         self.send(
             control: .with { ctrlMsg in
@@ -84,6 +101,7 @@ struct Outbox {
     mutating func merge(_ other: Outbox) {
         for (peer, rpc) in other.rpcs { self.send(rpc, to: peer) }
         self.dials.formUnion(other.dials)
+        self.dialRecords.merge(other.dialRecords) { _, new in new }
     }
 }
 
