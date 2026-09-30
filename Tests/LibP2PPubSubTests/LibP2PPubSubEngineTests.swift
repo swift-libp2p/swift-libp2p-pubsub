@@ -294,6 +294,62 @@ struct LibP2PPubSubEngineTests {
         try await node2.asyncShutdown()
     }
 
+    /// Two GossipSub nodes with peer scoring enabled. Tests messages flow, and that the receiver credits the sender's first delivery
+    @Test(.timeLimit(.minutes(1)))
+    func testPeerScoringOverTheNetwork() async throws {
+        let scoring = try GossipSubScoring(parameters: .init(topics: ["fruit": TopicScoreParameters()]))
+        let node1 = try await Self.makeHost(.gossipsub(configuration: .init(), parameters: .init(scoring: scoring)))
+        let node2 = try await Self.makeHost(.gossipsub(configuration: .init(), parameters: .init(scoring: scoring)))
+        try await node1.startup()
+        try await node2.startup()
+
+        do {
+            let subscription1 = try await node1.pubsub.gossipsub.subscribe(TopicConfiguration(topic: "fruit"))
+            let subscription2 = try await node2.pubsub.gossipsub.subscribe(TopicConfiguration(topic: "fruit"))
+            try await node1.newStream(to: node2.peerInfo, forProtocol: GossipSub.multicodec)
+            #expect(await Self.eventually { await node1.pubsub.gossipsub.peers(subscribedTo: "fruit") == [node2.peerID] })
+
+            try await node1.pubsub.gossipsub.publish(Data("banana".utf8), to: "fruit")
+            #expect(try await Self.firstMessage(in: subscription2) == "banana")
+
+            let score = await node2.pubsub.gossipsub.engine.inspectRouter { router in
+                (router as? GossipSubRouter)?.score(of: node1.peerID) ?? 0
+            }
+            #expect(score > 0)
+            subscription1.cancel()
+            subscription2.cancel()
+        } catch {
+            Issue.record(error)
+        }
+
+        try await node1.asyncShutdown()
+        try await node2.asyncShutdown()
+    }
+
+    /// With peer exchange enabled, we collect the signed peer records our peers send us when they're identified
+    @Test(.timeLimit(.minutes(1)))
+    func testSignedPeerRecordsFromIdentify() async throws {
+        let node1 = try await Self.makeHost(.gossipsub(configuration: .init(), parameters: .init(peerExchange: true)))
+        let node2 = try await Self.makeHost(.gossipsub)
+        try await node1.startup()
+        try await node2.startup()
+
+        do {
+            try await node1.newStream(to: node2.peerInfo, forProtocol: GossipSub.multicodec)
+            let recorded = await Self.eventually {
+                await node1.pubsub.gossipsub.engine.inspectRouter { router in
+                    (router as? GossipSubRouter)?.signedRecords[node2.peerID] != nil
+                }
+            }
+            #expect(recorded)
+        } catch {
+            Issue.record(error)
+        }
+
+        try await node1.asyncShutdown()
+        try await node2.asyncShutdown()
+    }
+
     /// A GossipSub node and a FloodSub-only node exchanging messages (GossipSub speaks `/floodsub/1.0.0` to FloodSub peers)
     @Test(.timeLimit(.minutes(1)))
     func testGossipSubInteroperatesWithFloodSub() async throws {
