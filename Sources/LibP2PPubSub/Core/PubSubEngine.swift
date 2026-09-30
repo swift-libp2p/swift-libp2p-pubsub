@@ -69,7 +69,8 @@ actor PubSubEngine {
     private let clock = ContinuousClock()
 
     /// Connects to peers the router asks for (ex: direct peers, or peers suggested via peer exchange)
-    private let dialer: (@Sendable (PeerID) async -> Void)?
+    /// The peer's (verified) record, when we have one, tells the dialer where to find it.
+    private let dialer: (@Sendable (PeerID, PeerRecord?) async -> Void)?
     
     /// The peers we're currently dialing
     private var pendingDials: Set<PeerID> = []
@@ -80,7 +81,7 @@ actor PubSubEngine {
         configuration: PubSubConfiguration,
         router: any PubSubRouter,
         logger: Logger,
-        dialer: (@Sendable (PeerID) async -> Void)? = nil
+        dialer: (@Sendable (PeerID, PeerRecord?) async -> Void)? = nil
     ) {
         precondition(!protocolIDs.isEmpty, "A PubSub engine must speak at least one protocol")
         self.protocolIDs = protocolIDs
