@@ -9,3 +9,5 @@ jobs:
   tests:
     name: Tests
     uses: swift-libp2p/github-workflows/.github/workflows/build+test.yml@main
+    with:
+      extra_swift_flags: "--traits TestDependencies"
