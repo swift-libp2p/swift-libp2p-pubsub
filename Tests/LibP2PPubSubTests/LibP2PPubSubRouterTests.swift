@@ -90,7 +90,7 @@ struct LibP2PPubSubRouterTests {
         let peers = try Self.peers(15)
         var router = Self.gossipRouter(peers: peers)
         /// Once our mesh is full (D_hi), only outbound peers may graft onto it
-        for peer in peers { router.addPeer(peer, protocolID: GossipSub.v1_1, outbound: true) }
+        for peer in peers { router.addPeer(peer, protocolID: GossipSub.v1_1, outbound: true, ip: nil) }
         _ = router.join("fruit", now: .now)
 
         /// Peers graft themselves onto our mesh until we're over D_hi
@@ -286,8 +286,8 @@ struct LibP2PPubSubRouterTests {
         let floodPeer = try PeerID(.Ed25519)
         let gossipPeers = try Self.peers(8)
         var router = Self.gossipRouter(peers: gossipPeers + [floodPeer])
-        router.addPeer(floodPeer, protocolID: FloodSub.multicodec, outbound: false)
-        for peer in gossipPeers { router.addPeer(peer, protocolID: GossipSub.multicodec, outbound: false) }
+        router.addPeer(floodPeer, protocolID: FloodSub.multicodec, outbound: false, ip: nil)
+        for peer in gossipPeers { router.addPeer(peer, protocolID: GossipSub.multicodec, outbound: false, ip: nil) }
 
         /// Our fanout excludes the FloodSub peer, but it's still sent the message
         let fanoutTargets = router.route(Self.message("a"), id: Data("a".utf8), topic: "fruit", from: nil, now: .now)
@@ -343,7 +343,7 @@ struct LibP2PPubSubRouterTests {
         let start = ContinuousClock.now
         let peer = try PeerID(.Ed25519)
         var router = Self.gossipRouter(peers: [peer])
-        router.addPeer(peer, protocolID: GossipSub.v1_1, outbound: true)
+        router.addPeer(peer, protocolID: GossipSub.v1_1, outbound: true, ip: nil)
         _ = router.join("fruit", now: start)
         #expect(router.mesh["fruit"] == [peer])
 
@@ -381,8 +381,8 @@ struct LibP2PPubSubRouterTests {
         let modern = try PeerID(.Ed25519)
         let legacy = try PeerID(.Ed25519)
         var router = Self.gossipRouter(peers: [modern, legacy])
-        router.addPeer(modern, protocolID: GossipSub.v1_1, outbound: false)
-        router.addPeer(legacy, protocolID: GossipSub.v1_0, outbound: false)
+        router.addPeer(modern, protocolID: GossipSub.v1_1, outbound: false, ip: nil)
+        router.addPeer(legacy, protocolID: GossipSub.v1_0, outbound: false, ip: nil)
         _ = router.join("fruit", now: .now)
 
         let outbox = router.leave("fruit", now: .now)
@@ -401,8 +401,8 @@ struct LibP2PPubSubRouterTests {
         let outbound = try PeerID(.Ed25519)
         /// Only the mesh peers are subscribed when we join, so JOIN can't pick the peers under test
         var router = Self.gossipRouter(peers: meshPeers)
-        for peer in meshPeers + [inbound] { router.addPeer(peer, protocolID: GossipSub.v1_1, outbound: false) }
-        router.addPeer(outbound, protocolID: GossipSub.v1_1, outbound: true)
+        for peer in meshPeers + [inbound] { router.addPeer(peer, protocolID: GossipSub.v1_1, outbound: false, ip: nil) }
+        router.addPeer(outbound, protocolID: GossipSub.v1_1, outbound: true, ip: nil)
         _ = router.join("fruit", now: .now)
         for peer in meshPeers {
             _ = router.handleControl(.with { $0.graft = [.with { $0.topicID = "fruit" }] }, from: peer, hasSeen: { _ in false }, now: .now)
@@ -425,8 +425,8 @@ struct LibP2PPubSubRouterTests {
         /// A small D_hi, so inbound peers alone can't fill the mesh
         let parameters = GossipSubParameters(meshDegree: 6, meshDegreeLow: 5, meshDegreeHigh: 8, floodPublish: false)
         var router = Self.gossipRouter(peers: inbound, parameters: parameters)
-        for peer in inbound { router.addPeer(peer, protocolID: GossipSub.v1_1, outbound: false) }
-        for peer in outbound { router.addPeer(peer, protocolID: GossipSub.v1_1, outbound: true) }
+        for peer in inbound { router.addPeer(peer, protocolID: GossipSub.v1_1, outbound: false, ip: nil) }
+        for peer in outbound { router.addPeer(peer, protocolID: GossipSub.v1_1, outbound: true, ip: nil) }
         _ = router.join("fruit", now: .now)
         /// Inbound peers fill the mesh up to D_hi, then outbound peers (always accepted) push it over
         for peer in inbound + outbound {
@@ -455,13 +455,13 @@ struct LibP2PPubSubRouterTests {
         let outbound = try Self.peers(2)
         let parameters = GossipSubParameters(meshDegree: 6, meshDegreeLow: 5, meshDegreeHigh: 7, floodPublish: false)
         var router = Self.gossipRouter(peers: inbound, parameters: parameters)
-        for peer in inbound { router.addPeer(peer, protocolID: GossipSub.v1_1, outbound: false) }
+        for peer in inbound { router.addPeer(peer, protocolID: GossipSub.v1_1, outbound: false, ip: nil) }
         _ = router.join("fruit", now: .now)
         #expect(router.mesh["fruit"]?.count == 6)
 
         /// Outbound peers subscribe after we've built our mesh
         for peer in outbound {
-            router.addPeer(peer, protocolID: GossipSub.v1_1, outbound: true)
+            router.addPeer(peer, protocolID: GossipSub.v1_1, outbound: true, ip: nil)
             router.handleSubscription(from: peer, topic: "fruit", subscribed: true)
         }
         let outbox = router.heartbeat(now: .now)
@@ -541,7 +541,7 @@ struct LibP2PPubSubRouterTests {
     @Test func testPeerExchange() throws {
         let peers = try Self.peers(14)
         var router = Self.gossipRouter(peers: peers, parameters: .init(floodPublish: false, peerExchange: true, prunePeers: 4))
-        for peer in peers { router.addPeer(peer, protocolID: GossipSub.v1_1, outbound: true) }
+        for peer in peers { router.addPeer(peer, protocolID: GossipSub.v1_1, outbound: true, ip: nil) }
         _ = router.join("fruit", now: .now)
         for peer in peers {
             _ = router.handleControl(.with { $0.graft = [.with { $0.topicID = "fruit" }] }, from: peer, hasSeen: { _ in false }, now: .now)
@@ -569,7 +569,7 @@ struct LibP2PPubSubRouterTests {
 
         /// Without peer exchange, we neither send nor accept PX
         var closed = Self.gossipRouter(peers: peers)
-        for peer in peers { closed.addPeer(peer, protocolID: GossipSub.v1_1, outbound: true) }
+        for peer in peers { closed.addPeer(peer, protocolID: GossipSub.v1_1, outbound: true, ip: nil) }
         _ = closed.join("fruit", now: .now)
         let ignored = closed.handleControl(
             .with { $0.prune = [.with { $0.topicID = "fruit"; $0.peers = [.with { $0.peerID = Data(stranger.id) }] }] },
@@ -590,7 +590,7 @@ struct LibP2PPubSubRouterTests {
 
         /// We dial our (disconnected) direct peers on our first heartbeat
         #expect(router.heartbeat(now: .now).dials == [direct])
-        router.addPeer(direct, protocolID: GossipSub.v1_1, outbound: true)
+        router.addPeer(direct, protocolID: GossipSub.v1_1, outbound: true, ip: nil)
 
         _ = router.join("fruit", now: .now)
         #expect(router.mesh["fruit"]?.contains(direct) == false)
@@ -611,24 +611,24 @@ struct LibP2PPubSubRouterTests {
         let v12 = try Self.peers(3)
         let v11 = try PeerID(.Ed25519)
         var router = Self.gossipRouter(peers: v12 + [v11])
-        for peer in v12 { router.addPeer(peer, protocolID: GossipSub.v1_2, outbound: false) }
-        router.addPeer(v11, protocolID: GossipSub.v1_1, outbound: false)
+        for peer in v12 { router.addPeer(peer, protocolID: GossipSub.v1_2, outbound: false, ip: nil) }
+        router.addPeer(v11, protocolID: GossipSub.v1_1, outbound: false, ip: nil)
         _ = router.join("fruit", now: .now)
 
         let large = Self.message(String(repeating: "a", count: 1024))
         let id = Data("large".utf8)
-        let outbox = router.received(large, id: id, topic: "fruit", from: v12[0])
+        let outbox = router.received(large, id: id, topic: "fruit", from: v12[0], now: .now)
         #expect(Set(outbox.rpcs.keys) == Set(v12[1...]))
         #expect(outbox.rpcs.values.allSatisfy { $0.control.idontwant.flatMap(\.messageIds) == [id] })
 
-        #expect(router.received(Self.message("small"), id: Data("small".utf8), topic: "fruit", from: v12[0]).isEmpty)
+        #expect(router.received(Self.message("small"), id: Data("small".utf8), topic: "fruit", from: v12[0], now: .now).isEmpty)
     }
 
     /// Peers that send us IDONTWANT don't receive the message (forwarded or via IWANT) for `dontWantTTL` heartbeats
     @Test func testReceivingIDontWant() throws {
         let peers = try Self.peers(3)
         var router = Self.gossipRouter(peers: peers, parameters: .init(floodPublish: false, dontWantTTL: 2))
-        for peer in peers { router.addPeer(peer, protocolID: GossipSub.v1_2, outbound: false) }
+        for peer in peers { router.addPeer(peer, protocolID: GossipSub.v1_2, outbound: false, ip: nil) }
         _ = router.join("fruit", now: .now)
         let picky = peers[0]
         let id = Data("banana".utf8)
