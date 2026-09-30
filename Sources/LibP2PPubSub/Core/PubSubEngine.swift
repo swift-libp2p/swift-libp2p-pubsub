@@ -550,6 +550,13 @@ actor PubSubEngine {
             )
             guard result == .accept else {
                 self.logger.debug("Dropping a `\(topic)` message from \(peer) that failed validation (\(result))")
+                let reason: MessageRejection =
+                    switch result {
+                    case .reject: .invalid
+                    case .throttle: .throttled
+                    default: .ignored
+                    }
+                self.router.rejected(message, id: id, topic: topic, from: peer, reason: reason, now: self.clock.now)
                 continue
             }
             /// Like go-libp2p-pubsub, a message is only marked as seen once it passes validation
