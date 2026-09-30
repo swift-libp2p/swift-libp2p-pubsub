@@ -129,7 +129,7 @@ final class LibP2PPubSubRegressionTests {
         router.handleSubscription(from: meshPeer, topic: "fruit", subscribed: true)
         #expect(router.mesh["fruit"] == [meshPeer])
 
-        router.removePeer(meshPeer)
+        router.removePeer(meshPeer, now: .now)
         #expect(router.mesh["fruit"]?.isEmpty == true)
         #expect(router.peers(subscribedTo: "fruit").isEmpty)
         #expect(router.peers(subscribedTo: "news") == [otherPeer])
@@ -143,7 +143,7 @@ final class LibP2PPubSubRegressionTests {
 
         #expect(router.route(Self.makeMessage(data: "banana"), id: Data(), topic: "news", from: nil, now: .now) == [peer])
 
-        router.removePeer(peer)
+        router.removePeer(peer, now: .now)
         #expect(router.route(Self.makeMessage(data: "banana"), id: Data(), topic: "news", from: nil, now: .now).isEmpty)
     }
 
