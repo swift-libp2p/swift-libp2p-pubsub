@@ -24,6 +24,7 @@
   - [GossipSub parameters](#gossipsub-parameters)
   - [Peer scoring](#peer-scoring)
   - [Peer exchange and direct peers](#peer-exchange-and-direct-peers)
+  - [swift-libp2p-core's AsyncPubSub](#swift-libp2p-cores-asyncpubsub)
   - [Legacy (EventLoopFuture) API](#legacy-eventloopfuture-api)
 - [Contributing](#contributing)
 - [Credits](#credits)
@@ -44,7 +45,7 @@ This repo contains the PubSub implementation for swift-libp2p. It provides two m
 
 Each peer is spoken to using the newest protocol version it supports. Every default matches [go-libp2p-pubsub](https://github.com/libp2p/go-libp2p-pubsub).
 
-The routers are built on Swift concurrency. An actor owns each router's state, validators are `async`, and subscriptions are `AsyncSequence`s. The `EventLoopFuture` API from swift-libp2p-core's `PubSubCore` still work using the legacy bridges.
+The routers are built on Swift concurrency. An actor owns each router's state, validators are `async`, and subscriptions are `AsyncSequence`s. Both routers conform to swift-libp2p-core's `AsyncPubSub` protocol. The `EventLoopFuture` API from core's `PubSubCore` still works through the legacy bridges.
 
 ## Install
 
@@ -239,11 +240,22 @@ GossipSubParameters(
     directPeers: [try Multiaddr("/ip4/10.0.0.2/tcp/10000/p2p/12D3KooW...")]
 )
 ```
-- **Peer exchange** is off by default, as in go and rust. When it's on, our PRUNEs carry each suggested peer's signed peer record, so the receiver can reach a peer it has never seen. Records we receive are verified before we dial. Enable peer scoring as well if you can: then we only accept suggestions from peers that meet `acceptPXThreshold`.
+- **Peer exchange** is off by default, as in go and rust. When it's on, our PRUNEs carry each suggested peer's signed peer record (from our peer store), so the receiver can reach a peer it has never seen. Records we receive are verified, and added to our peer store, before we dial. Enable peer scoring as well if you can: then we only accept suggestions from peers that meet `acceptPXThreshold`.
 - **Direct peers** always receive the messages on their topics, but are never part of a mesh. We reconnect to them if the connection drops. The addresses must include the peer's `/p2p/` ID, and the direct peer should also list us as a direct peer.
 
+### swift-libp2p-core's `AsyncPubSub`
+Both routers conform to core's `AsyncPubSub`, so code written against the protocol works with either:
+```Swift
+let pubsub: any AsyncPubSub = app.pubsub.gossipsub
+let subscription = try await pubsub.subscribe(
+    PubSub.SubscriptionConfig(topic: "news", validator: .acceptAll, messageIDFunc: .hashSequenceNumberAndFromFields)
+)
+try await pubsub.publish(Data("Hello".utf8), to: "news")
+```
+`PubSubSubscription` is a typealias for core's `PubSub.Subscription`. Core's message ID functions produce the same IDs as the equivalent `MessageIDStrategy`.
+
 ### Legacy (EventLoopFuture) API
-Both routers still implement swift-libp2p-core's `PubSubCore`, so existing synchronous code keeps working. (In an `async` context, these calls resolve to core's `async` overloads.)
+Both routers still implement swift-libp2p-core's `PubSubCore`, so existing synchronous code keeps working. (In an `async` context, `subscribe(_:)` resolves to `AsyncPubSub`'s version, and the other calls to core's `async` overloads.)
 ```Swift
 let handler = try app.pubsub.gossipsub.subscribe(
     PubSub.SubscriptionConfig(topic: "news", signaturePolicy: .strictSign, validator: .acceptAll, messageIDFunc: .concatFromAndSequenceFields)
@@ -256,7 +268,7 @@ handler.on = { event -> EventLoopFuture<Void> in
 app.pubsub.gossipsub.publish(topic: "news", data: Data("Hello".utf8))
 app.pubsub.gossipsub.unsubscribe(topic: "news")
 ```
-Prefer the async API. Legacy handlers drop any events that arrive before `on` is assigned. Also, core's `Hasher`-based `messageIDFunc`s give different IDs in different processes, so we map them to SHA-256 equivalents (`.hashedSequenceNumberAndFrom` and `.hashedMessage`).
+Prefer the async API. Legacy handlers drop any events that arrive before `on` is assigned.
 
 ## Contributing
 
