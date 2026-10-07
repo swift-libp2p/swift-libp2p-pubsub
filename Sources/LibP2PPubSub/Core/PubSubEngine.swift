@@ -647,16 +647,38 @@ actor PubSubEngine {
     }
 
     private func flush(_ outbox: Outbox) {
-        for (peer, rpc) in outbox.rpcs { self.send(rpc, to: peer) }
+        for (peer, rpc) in outbox.rpcs {
+            if let lookup = self.signedPeerRecord, !rpc.exchangedPeers.isEmpty {
+                self.send(rpc, to: peer, attachingSignedPeerRecordsFrom: lookup)
+            } else {
+                self.send(rpc, to: peer)
+            }
+        }
         for peer in outbox.dials { self.dial(peer, record: outbox.dialRecords[peer]) }
     }
 
-    private func addSignedPeerRecord(_ record: SignedPeerRecord) {
-        self.router.addSignedPeerRecord(record)
+    /// Sends an RPC whose PRUNEs suggest peers (PX), once we've attached the signed records we have for those peers.
+    ///
+    /// The records live in our peer store, which we can only read asynchronously, so this RPC may leave shortly after
+    /// any others produced by the same event. That's fine, the peer we're pruning is already out of our mesh.
+    private func send(
+        _ rpc: RPC,
+        to peer: PeerID,
+        attachingSignedPeerRecordsFrom lookup: @escaping @Sendable (PeerID) async -> SealedEnvelope?
+    ) {
+        let suggested = rpc.exchangedPeers
+        Task { [weak self] in
+            var records: [PeerID: Data] = [:]
+            for exchanged in suggested {
+                guard let envelope = await lookup(exchanged), let bytes = try? envelope.marshal() else { continue }
+                records[exchanged] = Data(bytes)
+            }
+            await self?.send(rpc.attachingSignedPeerRecords(records), to: peer)
+        }
     }
 
     /// Connects to a peer the router asked for, unless we're already connected to (or dialing) it
-    private func dial(_ peer: PeerID, record: PeerRecord?) {
+    private func dial(_ peer: PeerID, record: SealedEnvelope?) {
         guard let dialer = self.dialer, peer != self.localPeer, self.peers[peer] == nil else { return }
         guard self.pendingDials.insert(peer).inserted else { return }
         self.logger.debug("Connecting to \(peer)")
