@@ -178,7 +178,7 @@ actor PubSubEngine {
     }
 
     /// Subscribes to a topic on behalf of a swift-libp2p-core `SubscriptionHandler`, replacing any previous handler for the topic
-    func subscribe(_ config: TopicConfiguration, handler: LegacySubscriptionHandler) throws {
+    func subscribe(_ config: TopicConfiguration, handler: PubSub.SubscriptionHandler) throws {
         try self.register(
             config,
             key: .legacyHandler,
@@ -705,11 +705,12 @@ extension PubSubEngine {
     struct Registration {
         let validator: MessageValidator
         var events: AsyncStream<PubSub.SubscriptionEvent>.Continuation? = nil
-        var legacyHandler: LegacySubscriptionHandler? = nil
+        var legacyHandler: PubSub.SubscriptionHandler? = nil
 
         func deliver(_ event: PubSub.SubscriptionEvent) {
             self.events?.yield(event)
-            self.legacyHandler?.deliver(event)
+            /// Events that arrive before the handler's `on` callback is assigned are dropped
+            _ = self.legacyHandler?.on?(event)
         }
 
         func finish() {
@@ -746,21 +747,5 @@ extension PubSubEngine {
         let token: UUID
         let queue: AsyncStream<ByteBuffer>
         let hello: ByteBuffer?
-    }
-}
-
-/// Bridges swift-libp2p-core's `SubscriptionHandler` into the engine.
-///
-/// - Note: `SubscriptionHandler` isn't `Sendable`, its `on` callback is assigned by the caller after subscribing.
-///   We only ever read `on` in order to invoke it, which is the same contract core's API has always had.
-final class LegacySubscriptionHandler: @unchecked Sendable {
-    let handler: PubSub.SubscriptionHandler
-
-    init(_ handler: PubSub.SubscriptionHandler) {
-        self.handler = handler
-    }
-
-    func deliver(_ event: PubSub.SubscriptionEvent) {
-        _ = self.handler.on?(event)
     }
 }
