@@ -132,6 +132,12 @@ public class PubSubService: @unchecked Sendable {
         try await self.schedule { try await $0.subscribe(configuration) }.value
     }
 
+    /// Subscribes to a topic described by a swift-libp2p-core `PubSub.SubscriptionConfig` (`AsyncPubSub`)
+    @discardableResult
+    public func subscribe(_ config: PubSub.SubscriptionConfig) async throws -> PubSub.Subscription {
+        try await self.subscribe(TopicConfiguration(config))
+    }
+
     /// Unsubscribes from a topic entirely, ending all of its subscriptions
     public func unsubscribe(from topic: String) async {
         _ = await self.schedule { await $0.unsubscribe(from: topic) }.result
@@ -177,11 +183,10 @@ public class PubSubService: @unchecked Sendable {
         guard !config.topic.isEmpty else { throw PubSubError.invalidTopic }
         guard let pubsub = self as? PubSubCore else { throw PubSubError.notRunning }
         let handler = PubSub.SubscriptionHandler(pubSub: pubsub, topic: config.topic)
-        let legacyHandler = LegacySubscriptionHandler(handler)
         let configuration = TopicConfiguration(config)
         self.schedule { engine in
             do {
-                try await engine.subscribe(configuration, handler: legacyHandler)
+                try await engine.subscribe(configuration, handler: handler)
             } catch {
                 engine.logger.warning("Failed to subscribe to `\(configuration.topic)`: \(error)")
             }
