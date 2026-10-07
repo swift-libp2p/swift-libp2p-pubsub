@@ -260,11 +260,8 @@ struct GossipSubRouter: PubSubRouter {
             }
             exchanged = Array(candidates.shuffled().prefix(self.parameters.prunePeers))
         }
-        /// Attach the suggested peers' signed records (when we have them), so the peer can connect to them
-        let records = exchanged.reduce(into: [PeerID: Data]()) { records, suggested in
-            records[suggested] = self.signedRecords[suggested]?.envelope
-        }
-        outbox.prune(topic, to: peer, backoff: duration, peers: exchanged, signedRecords: records)
+        /// The engine attaches the suggested peers' signed records (from our peer store), so the peer can connect to them
+        outbox.prune(topic, to: peer, backoff: duration, peers: exchanged)
     }
 
     /// We're joining the topic, select up to `D` of the topic's peers and GRAFT them into our new mesh
