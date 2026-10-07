@@ -900,15 +900,10 @@ struct LibP2PPubSubRouterTests {
             )
         }
 
-        /// Every suggested peer carries its own signed record
+        /// Our PRUNEs suggest peers, their records are attached by the engine
         let suggested = router.heartbeat(now: .now).rpcs.values.compactMap(\.control.prune.first).flatMap(\.peers)
         #expect(suggested.count == 32)
-        for info in suggested {
-            #expect(info.hasSignedPeerRecord)
-            #expect(
-                try SignedPeerRecord(envelope: info.signedPeerRecord).peer == PeerID(fromBytesID: info.peerID.byteArray)
-            )
-        }
+        #expect(suggested.allSatisfy { !$0.hasSignedPeerRecord })
 
         /// We dial suggested peers with valid records, passing the record along, and ignore those with invalid ones
         let (stranger, imposter, unsigned) = (try PeerID(.Ed25519), try PeerID(.Ed25519), try PeerID(.Ed25519))
@@ -936,7 +931,8 @@ struct LibP2PPubSubRouterTests {
             now: .now
         )
         #expect(outbox.dials == [stranger, unsigned])
-        #expect(outbox.dialRecords[stranger]?.multiaddrs == [try Multiaddr("/ip4/127.0.0.1/tcp/4002")])
+        let strangerRecord = try #require(outbox.dialRecords[stranger])
+        #expect(try PeerRecord(signedEnvelope: strangerRecord).multiaddrs == [try Multiaddr("/ip4/127.0.0.1/tcp/4002")])
         #expect(outbox.dialRecords[unsigned] == nil)
     }
 }
