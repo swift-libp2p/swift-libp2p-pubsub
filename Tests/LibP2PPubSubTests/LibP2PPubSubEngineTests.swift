@@ -430,28 +430,105 @@ extension LibP2PPubSubEngineTests {
         try await node2.asyncShutdown()
     }
 
-    /// With peer exchange enabled, we collect the signed peer records our peers send us when they're identified
+    /// Both routers can be used through swift-libp2p-core's `AsyncPubSub`
     @Test(.timeLimit(.minutes(1)))
-    func testSignedPeerRecordsFromIdentify() async throws {
-        let node1 = try await Self.makeHost(.gossipsub(configuration: .init(), parameters: .init(peerExchange: true)))
+    func testAsyncPubSubConformance() async throws {
+        let node1 = try await Self.makeHost(.gossipsub)
         let node2 = try await Self.makeHost(.gossipsub)
         try await node1.startup()
         try await node2.startup()
 
         do {
-            try await node1.newStream(to: node2.peerInfo, forProtocol: GossipSub.multicodec)
-            let recorded = await Self.eventually {
-                await node1.pubsub.gossipsub.engine.inspectRouter { router in
-                    (router as? GossipSubRouter)?.signedRecords[node2.peerID] != nil
-                }
-            }
-            #expect(recorded)
+            let config = PubSub.SubscriptionConfig(
+                topic: "fruit",
+                validator: .acceptAll,
+                messageIDFunc: .hashSequenceNumberAndFromFields
+            )
+            /// In an async context, subscribing with a core config resolves to `AsyncPubSub`'s `subscribe`
+            /// (`.messages` wouldn't compile against `PubSubCore`'s `Void` returning overload)
+            let subscription2 = try await node2.pubsub.gossipsub.subscribe(config)
+            _ = subscription2.messages
+
+            let pubsub1: any AsyncPubSub = node1.pubsub.gossipsub
+            let subscription1 = try await pubsub1.subscribe(config)
+            #expect(type(of: pubsub1).multicodec == GossipSub.v1_2)
+            #expect(await pubsub1.subscribedTopics() == ["fruit"])
+
+            try await node1.connect(to: node2.peerInfo)
+            #expect(await Self.eventually { await pubsub1.peers(subscribedTo: "fruit") == [node2.peerID] })
+
+            try await pubsub1.publish(Array("banana".utf8), to: "fruit")
+            #expect(try await Self.firstMessage(in: subscription2) == "banana")
+
+            try await pubsub1.unsubscribe(from: "fruit")
+            #expect(await pubsub1.subscribedTopics().isEmpty)
+            subscription1.cancel()
+            subscription2.cancel()
         } catch {
             Issue.record(error)
         }
 
         try await node1.asyncShutdown()
         try await node2.asyncShutdown()
+    }
+
+    /// Peer exchange end to end: when node1 leaves the topic, its PRUNEs suggest node2 and node3 to each other, carrying the
+    /// signed peer records from node1's peer store. That's the only way node2 can learn where node3 is.
+    @Test(.timeLimit(.minutes(1)))
+    func testPeerExchangeWithSignedPeerRecords() async throws {
+        let px = Application.PubSubServices.Provider.gossipsub(
+            configuration: .init(),
+            parameters: .init(peerExchange: true)
+        )
+        let node1 = try await Self.makeHost(px)
+        let node2 = try await Self.makeHost(px)
+        let node3 = try await Self.makeHost(px)
+        for node in [node1, node2, node3] { try await node.startup() }
+
+        do {
+            let subscriptions = [
+                try await node1.pubsub.gossipsub.subscribe(TopicConfiguration(topic: "fruit")),
+                try await node2.pubsub.gossipsub.subscribe(TopicConfiguration(topic: "fruit")),
+                try await node3.pubsub.gossipsub.subscribe(TopicConfiguration(topic: "fruit")),
+            ]
+            try await node1.connect(to: node2.peerInfo)
+            try await node1.connect(to: node3.peerInfo)
+
+            /// Identify stores each peer's signed record in node1's peer store
+            #expect(
+                await Self.eventually {
+                    (try? await node1.peers.getMostRecentSignedRecord(forPeer: node2.peerID)) != nil
+                }
+            )
+            #expect(
+                await Self.eventually {
+                    (try? await node1.peers.getMostRecentSignedRecord(forPeer: node3.peerID)) != nil
+                }
+            )
+            /// Wait until node1 has grafted both peers into its mesh
+            #expect(
+                await Self.eventually {
+                    await node1.pubsub.gossipsub.engine.inspectRouter { router in
+                        (router as? GossipSubRouter)?.mesh["fruit"]?.count == 2
+                    }
+                }
+            )
+            #expect(await node2.pubsub.gossipsub.peers(subscribedTo: "fruit") == [node1.peerID])
+            #expect(await node3.pubsub.gossipsub.peers(subscribedTo: "fruit") == [node1.peerID])
+
+            /// Leaving the topic prunes both peers, suggesting each to the other
+            await node1.pubsub.gossipsub.unsubscribe(from: "fruit")
+            #expect(
+                await Self.eventually {
+                    await node2.pubsub.gossipsub.peers(subscribedTo: "fruit").contains(node3.peerID)
+                }
+            )
+            for subscription in subscriptions { subscription.cancel() }
+        } catch {
+            Issue.record(error)
+        }
+
+        for node in [node1, node2, node3] { try await node.asyncShutdown() }
     }
 
     /// A GossipSub node and a FloodSub-only node exchanging messages (GossipSub speaks `/floodsub/1.0.0` to FloodSub peers)

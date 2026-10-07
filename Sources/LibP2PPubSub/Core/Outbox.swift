@@ -24,12 +24,12 @@ struct Outbox {
     /// Peers the router would like us to connect to (ex: direct peers we've lost, or peers learnt via PX)
     private(set) var dials: Set<PeerID> = []
 
-    /// The (verified) peer records we received for the peers we'd like to dial, which tell us where to find them
-    private(set) var dialRecords: [PeerID: PeerRecord] = [:]
+    /// The (verified) signed peer records we received for the peers we'd like to dial, which tell us where to find them
+    private(set) var dialRecords: [PeerID: SealedEnvelope] = [:]
 
     var isEmpty: Bool { self.rpcs.isEmpty && self.dials.isEmpty }
 
-    mutating func dial(_ peer: PeerID, record: PeerRecord? = nil) {
+    mutating func dial(_ peer: PeerID, record: SealedEnvelope? = nil) {
         self.dials.insert(peer)
         if let record { self.dialRecords[peer] = record }
     }
@@ -65,24 +65,13 @@ struct Outbox {
     /// Record a Prune control message for `peer` on `topic`
     /// - Parameters:
     ///   - backoff: How long the peer should wait before grafting us again (sent in whole seconds)
-    ///   - peers: The peers we suggest (PX, if peer exchange is enabled)
-    ///   - signedRecords: The signed peer record envelopes we have for (some of) the suggested peers
-    mutating func prune(
-        _ topic: String,
-        to peer: PeerID,
-        backoff: Duration? = nil,
-        peers: [PeerID] = [],
-        signedRecords: [PeerID: Data] = [:]
-    ) {
+    ///   - peers: The peers we suggest (PX, if peer exchange is enabled).
+    ///     The engine attaches their signed peer records (from our peer store) before sending.
+    mutating func prune(_ topic: String, to peer: PeerID, backoff: Duration? = nil, peers: [PeerID] = []) {
         let prune = RPC.ControlPrune.with { prune in
             prune.topicID = topic
             if let backoff { prune.backoff = UInt64(max(0, backoff.components.seconds)) }
-            prune.peers = peers.map { exchanged in
-                .with { info in
-                    info.peerID = Data(exchanged.id)
-                    if let record = signedRecords[exchanged] { info.signedPeerRecord = record }
-                }
-            }
+            prune.peers = peers.map { exchanged in .with { $0.peerID = Data(exchanged.id) } }
         }
         self.send(
             control: .with { ctrlMsg in
@@ -119,6 +108,36 @@ extension RPC {
             control.idontwant.append(contentsOf: other.control.idontwant)
             self.control = control
         }
+    }
+
+    /// The peers suggested (PX) by this RPC's PRUNEs
+    var exchangedPeers: Set<PeerID> {
+        guard self.hasControl else { return [] }
+        return Set(
+            self.control.prune.flatMap(\.peers).compactMap { try? PeerID(fromBytesID: $0.peerID.byteArray) }
+        )
+    }
+
+    /// Returns a copy of this RPC whose suggested (PX) peers carry their signed peer records, when we have them
+    ///
+    /// - Parameter records: Marshaled signed peer record envelopes, keyed by the peer they describe
+    func attachingSignedPeerRecords(_ records: [PeerID: Data]) -> RPC {
+        guard self.hasControl, !records.isEmpty else { return self }
+        var rpc = self
+        rpc.control.prune = self.control.prune.map { prune in
+            var prune = prune
+            prune.peers = prune.peers.map { info in
+                guard !info.hasSignedPeerRecord,
+                    let peer = try? PeerID(fromBytesID: [UInt8](info.peerID)),
+                    let record = records[peer]
+                else { return info }
+                var info = info
+                info.signedPeerRecord = record
+                return info
+            }
+            return prune
+        }
+        return rpc
     }
 
     /// Splits this RPC into RPCs whose serialized size doesn't exceed `maxSize`, where possible.

@@ -214,17 +214,25 @@ struct LibP2PPubSubRegressionTests {
         #expect(idStrategy.id(for: prepared) != idStrategy.id(for: other))
     }
 
-    /// The core `Hasher` based message ID functions differ between processes, so they're mapped to stable SHA-256 IDs
-    @Test func testLegacyMessageIDFunctionsAreStable() throws {
+    @Test func testMessageIDFunctionsAreStable() throws {
         let msg = Self.makeMessage(data: "banana", from: Data("author".utf8), seqno: Self.seqno(7))
-        for function in [PubSub.MessageIDFunction.hashSequenceNumberAndFromFields, .hashEverything] {
+        let functions: [(PubSub.MessageIDFunction, MessageIDStrategy)] = [
+            (.hashSequenceNumberAndFromFields, .hashedSequenceNumberAndFrom),
+            (.hashEverything, .hashedMessage),
+            (.concatFromAndSequenceFields, .fromAndSequenceNumber),
+        ]
+        for (function, strategy) in functions {
             let config = TopicConfiguration(
                 .init(topic: "fruit", signaturePolicy: .strictSign, validator: .acceptAll, messageIDFunc: function)
             )
             let id = config.effectiveMessageID.id(for: msg)
-            #expect(id.count == 32)
-            #expect(id == config.effectiveMessageID.id(for: msg))
+            #expect(id == strategy.id(for: msg))
+            #expect(id == function.messageIDFunction(msg))
         }
+        #expect(MessageIDStrategy.hashedSequenceNumberAndFrom.id(for: msg).count == 32)
+        #expect(
+            MessageIDStrategy.contentHash.id(for: msg) == PubSub.MessageIDFunction.contentHash.messageIDFunction(msg)
+        )
     }
 
     /// A message claiming multiple topics could bypass a topic's policy / validators, so it's rejected outright

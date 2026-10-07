@@ -38,8 +38,7 @@ let package = Package(
     ],
     dependencies: [
         // Dependencies declare other packages that this package depends on.
-        .package(url: "https://github.com/swift-libp2p/swift-libp2p.git", .upToNextMinor(from: "0.4.0")),
-        .package(url: "https://github.com/apple/swift-crypto.git", .upToNextMajor(from: "4.0.0")),
+        .package(url: "https://github.com/swift-libp2p/swift-libp2p.git", .upToNextMinor(from: "0.4.1")),
 
         // Test dependencies (only used when the `TestDependencies` trait is enabled)
         .package(url: "https://github.com/swift-libp2p/swift-libp2p-noise.git", .upToNextMinor(from: "0.4.0")),
@@ -51,8 +50,7 @@ let package = Package(
         .target(
             name: "LibP2PPubSub",
             dependencies: [
-                .product(name: "LibP2P", package: "swift-libp2p"),
-                .product(name: "Crypto", package: "swift-crypto"),
+                .product(name: "LibP2P", package: "swift-libp2p")
             ],
             exclude: [
                 "Protobufs/RPC2.proto"

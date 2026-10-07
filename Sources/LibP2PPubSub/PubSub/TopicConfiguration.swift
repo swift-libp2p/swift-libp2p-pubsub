@@ -46,9 +46,6 @@ public struct TopicConfiguration: Sendable {
     }
 
     /// Bridges a swift-libp2p-core `PubSub.SubscriptionConfig`.
-    /// - Note: We bypass cores hashing due to it using swifts built in hasher instead of SHA256
-    ///   which is needed for stable / deterministic hashing.
-    /// - Todo: Update swift-libp2p-core to use swift-crypto's SHA256 hasher.
     public init(_ config: PubSub.SubscriptionConfig) {
         let validator: MessageValidator
         switch config.validator {

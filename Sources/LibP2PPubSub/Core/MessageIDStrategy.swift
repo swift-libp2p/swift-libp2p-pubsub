@@ -12,7 +12,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-import Crypto
 import LibP2P
 
 /// How a message's ID is derived.
@@ -20,6 +19,8 @@ import LibP2P
 /// Message IDs are used to uniquely define messages so we can...
 /// - drop / ignore duplicate messages
 /// - advertise (IHAVE) and request (IWANT) messages in gossipsub
+///
+/// The hashed strategies produce the same IDs as swift-libp2p-core's equivalent `PubSub.MessageIDFunction`s.
 ///
 /// - Important: Every peer on a given topic must derive IDs the same way.
 public enum MessageIDStrategy: Sendable {
@@ -29,17 +30,22 @@ public enum MessageIDStrategy: Sendable {
     /// - Note: Only unique for signed (StrictSign) messages.
     case fromAndSequenceNumber
 
-    /// SHA-256 of `seqno` followed by `from`
+    /// SHA-256 of `seqno` followed by `from` (core's `.hashSequenceNumberAndFromFields`)
     case hashedSequenceNumberAndFrom
 
-    /// SHA-256 of `seqno`, `from`, `data` and the topic
+    /// SHA-256 of `seqno`, `from`, `data` and the topic (core's `.hashEverything`)
     case hashedMessage
 
-    /// SHA-256 of `data`. The usual choice for StrictNoSign topics.
+    /// SHA-256 of `data` (core's `.contentHash`). The usual choice for StrictNoSign topics.
     case contentHash
 
     /// A custom ID function
     case custom(@Sendable (PubSubMessage) -> Data)
+
+    private static let hashedSequenceNumberAndFromID = PubSub.MessageIDFunction.hashSequenceNumberAndFromFields
+        .messageIDFunction
+    private static let hashedMessageID = PubSub.MessageIDFunction.hashEverything.messageIDFunction
+    private static let contentHashID = PubSub.MessageIDFunction.contentHash.messageIDFunction
 
     /// Computes the ID of `message`
     public func id(for message: PubSubMessage) -> Data {
@@ -47,16 +53,11 @@ public enum MessageIDStrategy: Sendable {
         case .fromAndSequenceNumber:
             return message.from + message.seqno
         case .hashedSequenceNumberAndFrom:
-            return Data(SHA256.hash(data: message.seqno + message.from))
+            return Self.hashedSequenceNumberAndFromID(message)
         case .hashedMessage:
-            var hasher = SHA256()
-            hasher.update(data: message.seqno)
-            hasher.update(data: message.from)
-            hasher.update(data: message.data)
-            for topic in message.topicIds { hasher.update(data: Data(topic.utf8)) }
-            return Data(hasher.finalize())
+            return Self.hashedMessageID(message)
         case .contentHash:
-            return Data(SHA256.hash(data: message.data))
+            return Self.contentHashID(message)
         case .custom(let function):
             return function(message)
         }

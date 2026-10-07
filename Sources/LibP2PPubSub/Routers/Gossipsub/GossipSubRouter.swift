@@ -102,9 +102,6 @@ struct GossipSubRouter: PubSubRouter {
     /// peer's promise expires. Broken promises count towards the peer's behavioural penalty.
     private(set) var promises: [Data: [PeerID: Instant]] = [:]
 
-    /// Our peers' signed peer records, which we attach to the peers we suggest via PX (when peer exchange is enabled)
-    private(set) var signedRecords = SignedPeerRecordBook()
-
     /// The number of heartbeats we've performed
     private(set) var ticks: Int = 0
 
@@ -187,13 +184,6 @@ struct GossipSubRouter: PubSubRouter {
         for topic in self.fanout.keys { self.fanout[topic]?.remove(peer) }
     }
 
-    /// We only need our peers' signed records to suggest them via PX
-    var wantsSignedPeerRecords: Bool { self.parameters.peerExchange }
-
-    mutating func addSignedPeerRecord(_ record: SignedPeerRecord) {
-        self.signedRecords.insert(record, connected: Set(self.peers.keys))
-    }
-
     /// Update the peers subscription status for the specified topic
     mutating func handleSubscription(from peer: PeerID, topic: String, subscribed: Bool) {
         self.membership.update(peer, topic: topic, subscribed: subscribed)
@@ -270,11 +260,8 @@ struct GossipSubRouter: PubSubRouter {
             }
             exchanged = Array(candidates.shuffled().prefix(self.parameters.prunePeers))
         }
-        /// Attach the suggested peers' signed records (when we have them), so the peer can connect to them
-        let records = exchanged.reduce(into: [PeerID: Data]()) { records, suggested in
-            records[suggested] = self.signedRecords[suggested]?.envelope
-        }
-        outbox.prune(topic, to: peer, backoff: duration, peers: exchanged, signedRecords: records)
+        /// The engine attaches the suggested peers' signed records (from our peer store), so the peer can connect to them
+        outbox.prune(topic, to: peer, backoff: duration, peers: exchanged)
     }
 
     /// We're joining the topic, select up to `D` of the topic's peers and GRAFT them into our new mesh
@@ -492,13 +479,20 @@ struct GossipSubRouter: PubSubRouter {
                     outbox.dial(suggested)
                     continue
                 }
-                guard let signed = try? SignedPeerRecord(envelope: info.signedPeerRecord), signed.peer == suggested
-                else {
-                    continue
-                }
-                outbox.dial(suggested, record: signed.record)
+                guard let envelope = Self.verifiedEnvelope(info.signedPeerRecord, for: suggested) else { continue }
+                outbox.dial(suggested, record: envelope)
             }
         }
+    }
+
+    /// Opens a marshaled signed peer record envelope, returning it only if its signature verifies and the record inside
+    /// belongs to `peer` (who must also be the signer)
+    static func verifiedEnvelope(_ bytes: Data, for peer: PeerID) -> SealedEnvelope? {
+        guard let envelope = try? SealedEnvelope(marshaledEnvelope: bytes.byteArray),
+            let record = try? PeerRecord(signedEnvelope: envelope),
+            record.peerID == peer
+        else { return nil }
+        return envelope
     }
 
     /// IHAVE: request the advertised messages we haven't seen, on topics we're subscribed to.

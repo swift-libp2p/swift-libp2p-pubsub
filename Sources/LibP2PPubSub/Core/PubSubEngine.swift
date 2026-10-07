@@ -69,8 +69,11 @@ actor PubSubEngine {
     private let clock = ContinuousClock()
 
     /// Connects to peers the router asks for (ex: direct peers, or peers suggested via peer exchange)
-    /// The peer's (verified) record, when we have one, tells the dialer where to find it.
-    private let dialer: (@Sendable (PeerID, PeerRecord?) async -> Void)?
+    /// The peer's (verified) signed record, when we have one, tells the dialer where to find it.
+    private let dialer: (@Sendable (PeerID, SealedEnvelope?) async -> Void)?
+
+    /// Looks up a peer's most recent signed peer record, which we attach to the peers we suggest via peer exchange
+    private let signedPeerRecord: (@Sendable (PeerID) async -> SealedEnvelope?)?
 
     /// The peers we're currently dialing
     private var pendingDials: Set<PeerID> = []
@@ -84,7 +87,8 @@ actor PubSubEngine {
         configuration: PubSubConfiguration,
         router: any PubSubRouter,
         logger: Logger,
-        dialer: (@Sendable (PeerID, PeerRecord?) async -> Void)? = nil
+        dialer: (@Sendable (PeerID, SealedEnvelope?) async -> Void)? = nil,
+        signedPeerRecord: (@Sendable (PeerID) async -> SealedEnvelope?)? = nil
     ) {
         precondition(!protocolIDs.isEmpty, "A PubSub engine must speak at least one protocol")
         self.protocolIDs = protocolIDs
@@ -93,6 +97,7 @@ actor PubSubEngine {
         self.router = router
         self.logger = logger
         self.dialer = dialer
+        self.signedPeerRecord = signedPeerRecord
         self.seen = SeenCache(ttl: configuration.seenTTL)
         /// Like go-libp2p-pubsub, sequence numbers start at the current time (in nanoseconds) and increase monotonically
         self.sequenceNumber = UInt64(max(0, Date().timeIntervalSince1970 * 1_000_000_000))
@@ -102,9 +107,8 @@ actor PubSubEngine {
 
     /// Starts the heartbeat and, if provided, starts discovering peers via `peerEvents`
     ///
-    /// - Parameter peerEvents: Our application's `remotePeerProtocolChange` and `identifiedPeer` events
-    ///   (`app.events.subscribe(to:)`). Consuming them from a single stream means we handle peers in the order they're
-    ///   identified. Identify events carry the peer's signed peer record, which we pass on to routers that want them.
+    /// - Parameter peerEvents: Our application's `remotePeerProtocolChange` events (`app.events.subscribe(to:)`).
+    ///   Consuming them from a single stream means we handle peers in the order they're identified.
     func start(peerEvents: AsyncStream<EventBus.EventEmitter>? = nil) {
         guard !self.isRunning else { return }
         self.isRunning = true
@@ -117,30 +121,14 @@ actor PubSubEngine {
             }
         }
         if let peerEvents {
-            let protocolIDs = self.protocolIDs
-            let wantsSignedPeerRecords = self.router.wantsSignedPeerRecords
             self.discoveryTask = Task { [weak self] in
                 for await event in peerEvents {
-                    switch event {
-                    case .remotePeerProtocolChange(let change):
-                        await self?.peerProtocolsChanged(
-                            change.peer,
-                            protocols: change.protocols.map(\.stringValue),
-                            connection: change.connection
-                        )
-                    case .identifiedPeer(let identified) where wantsSignedPeerRecords:
-                        /// Verify the record here, rather than on the actor
-                        guard
-                            let record = SignedPeerRecord(
-                                identify: identified.identity,
-                                from: identified.peer,
-                                speakingAnyOf: protocolIDs
-                            )
-                        else { continue }
-                        await self?.addSignedPeerRecord(record)
-                    default:
-                        continue
-                    }
+                    guard case .remotePeerProtocolChange(let change) = event else { continue }
+                    await self?.peerProtocolsChanged(
+                        change.peer,
+                        protocols: change.protocols.map(\.stringValue),
+                        connection: change.connection
+                    )
                 }
             }
         }
@@ -190,7 +178,7 @@ actor PubSubEngine {
     }
 
     /// Subscribes to a topic on behalf of a swift-libp2p-core `SubscriptionHandler`, replacing any previous handler for the topic
-    func subscribe(_ config: TopicConfiguration, handler: LegacySubscriptionHandler) throws {
+    func subscribe(_ config: TopicConfiguration, handler: PubSub.SubscriptionHandler) throws {
         try self.register(
             config,
             key: .legacyHandler,
@@ -461,8 +449,12 @@ actor PubSubEngine {
     }
 
     private func openOutboundStream(_ protocolID: String, on connection: Connection) {
-        guard let connection = connection as? BaseConnection else {
+        guard let connection = connection as? AppConnection else {
             self.logger.debug("Unable to open a `\(protocolID)` stream on a \(type(of: connection))")
+            return
+        }
+        guard connection.acceptsNewStreams else {
+            self.logger.debug("Unable to open a `\(protocolID)` stream on a closing connection")
             return
         }
         connection.newStream(forProtocol: protocolID, mode: .ifOutboundDoesntAlreadyExist)
@@ -655,16 +647,38 @@ actor PubSubEngine {
     }
 
     private func flush(_ outbox: Outbox) {
-        for (peer, rpc) in outbox.rpcs { self.send(rpc, to: peer) }
+        for (peer, rpc) in outbox.rpcs {
+            if let lookup = self.signedPeerRecord, !rpc.exchangedPeers.isEmpty {
+                self.send(rpc, to: peer, attachingSignedPeerRecordsFrom: lookup)
+            } else {
+                self.send(rpc, to: peer)
+            }
+        }
         for peer in outbox.dials { self.dial(peer, record: outbox.dialRecords[peer]) }
     }
 
-    private func addSignedPeerRecord(_ record: SignedPeerRecord) {
-        self.router.addSignedPeerRecord(record)
+    /// Sends an RPC whose PRUNEs suggest peers (PX), once we've attached the signed records we have for those peers.
+    ///
+    /// The records live in our peer store, which we can only read asynchronously, so this RPC may leave shortly after
+    /// any others produced by the same event. That's fine, the peer we're pruning is already out of our mesh.
+    private func send(
+        _ rpc: RPC,
+        to peer: PeerID,
+        attachingSignedPeerRecordsFrom lookup: @escaping @Sendable (PeerID) async -> SealedEnvelope?
+    ) {
+        let suggested = rpc.exchangedPeers
+        Task { [weak self] in
+            var records: [PeerID: Data] = [:]
+            for exchanged in suggested {
+                guard let envelope = await lookup(exchanged), let bytes = try? envelope.marshal() else { continue }
+                records[exchanged] = Data(bytes)
+            }
+            await self?.send(rpc.attachingSignedPeerRecords(records), to: peer)
+        }
     }
 
     /// Connects to a peer the router asked for, unless we're already connected to (or dialing) it
-    private func dial(_ peer: PeerID, record: PeerRecord?) {
+    private func dial(_ peer: PeerID, record: SealedEnvelope?) {
         guard let dialer = self.dialer, peer != self.localPeer, self.peers[peer] == nil else { return }
         guard self.pendingDials.insert(peer).inserted else { return }
         self.logger.debug("Connecting to \(peer)")
@@ -717,11 +731,12 @@ extension PubSubEngine {
     struct Registration {
         let validator: MessageValidator
         var events: AsyncStream<PubSub.SubscriptionEvent>.Continuation? = nil
-        var legacyHandler: LegacySubscriptionHandler? = nil
+        var legacyHandler: PubSub.SubscriptionHandler? = nil
 
         func deliver(_ event: PubSub.SubscriptionEvent) {
             self.events?.yield(event)
-            self.legacyHandler?.deliver(event)
+            /// Events that arrive before the handler's `on` callback is assigned are dropped
+            _ = self.legacyHandler?.on?(event)
         }
 
         func finish() {
@@ -758,21 +773,5 @@ extension PubSubEngine {
         let token: UUID
         let queue: AsyncStream<ByteBuffer>
         let hello: ByteBuffer?
-    }
-}
-
-/// Bridges swift-libp2p-core's `SubscriptionHandler` into the engine.
-///
-/// - Note: `SubscriptionHandler` isn't `Sendable`, its `on` callback is assigned by the caller after subscribing.
-///   We only ever read `on` in order to invoke it, which is the same contract core's API has always had.
-final class LegacySubscriptionHandler: @unchecked Sendable {
-    let handler: PubSub.SubscriptionHandler
-
-    init(_ handler: PubSub.SubscriptionHandler) {
-        self.handler = handler
-    }
-
-    func deliver(_ event: PubSub.SubscriptionEvent) {
-        _ = self.handler.on?(event)
     }
 }

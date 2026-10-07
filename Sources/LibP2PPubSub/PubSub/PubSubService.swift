@@ -73,22 +73,29 @@ public class PubSubService: @unchecked Sendable {
         logger.logLevel = application.logger.logLevel
 
         /// Connects to a peer the router asked for (ex: a direct peer, or one suggested via peer exchange).
-        /// We connect by opening an identify stream, once the peer's identified our discovery opens a stream using the best
-        /// protocol it supports, exactly as it does for any other peer.
-        /// A verified peer record (from PX) is added to our peer store first, so we know where to find the peer.
+        /// Once the peer's identified, our discovery opens a stream using the best protocol it supports, exactly as it
+        /// does for any other peer.
+        /// A verified signed peer record (from PX) is added to our peer store first (when present), so we know where to
+        /// find the peer (and can pass its record on to others during peer exchange).
         let dialLogger = logger
-        let dialer: @Sendable (PeerID, PeerRecord?) async -> Void = { [weak application] peer, record in
+        let dialer: @Sendable (PeerID, SealedEnvelope?) async -> Void = { [weak application] peer, record in
             guard let application else { return }
             do {
-                if let record { try await application.peers.add(record: record) }
+                if let record { try await application.peers.add(signedRecord: record) }
                 if let address = knownAddresses[peer] {
-                    try await application.newStream(to: address, forProtocol: "/ipfs/id/1.0.0")
+                    try await application.connect(to: address)
                 } else {
-                    try await application.newStream(to: peer, forProtocol: "/ipfs/id/1.0.0")
+                    try await application.connect(to: peer)
                 }
             } catch {
                 dialLogger.debug("Failed to connect to \(peer): \(error)")
             }
+        }
+
+        /// Our peer store holds the signed peer records identify verified, we pass them on via peer exchange
+        let signedPeerRecord: @Sendable (PeerID) async -> SealedEnvelope? = { [weak application] peer in
+            /// The peer store throws for peers it doesn't know
+            try? await application?.peers.getMostRecentSignedRecord(forPeer: peer)
         }
 
         let engine = PubSubEngine(
@@ -97,7 +104,8 @@ public class PubSubService: @unchecked Sendable {
             configuration: configuration,
             router: router,
             logger: logger,
-            dialer: dialer
+            dialer: dialer,
+            signedPeerRecord: signedPeerRecord
         )
         self.engine = engine
         self.eventLoop = application.eventLoopGroup.next()
@@ -113,7 +121,7 @@ public class PubSubService: @unchecked Sendable {
         /// Learn about peers that support our protocols as they're identified. The engine consumes these events from a
         /// single stream (so they're handled in order) for as long as it's running, and the subscription ends when it stops.
         self.peerEvents = { [weak application] in
-            application?.events.subscribe(to: [.remotePeerProtocolChange, .identifiedPeer])
+            application?.events.subscribe(to: [.remotePeerProtocolChange])
         }
     }
 
@@ -122,6 +130,12 @@ public class PubSubService: @unchecked Sendable {
     /// Subscribes to a topic, returning a ``PubSubSubscription`` that delivers the topic's events
     public func subscribe(_ configuration: TopicConfiguration) async throws -> PubSubSubscription {
         try await self.schedule { try await $0.subscribe(configuration) }.value
+    }
+
+    /// Subscribes to a topic described by a swift-libp2p-core `PubSub.SubscriptionConfig` (`AsyncPubSub`)
+    @discardableResult
+    public func subscribe(_ config: PubSub.SubscriptionConfig) async throws -> PubSub.Subscription {
+        try await self.subscribe(TopicConfiguration(config))
     }
 
     /// Unsubscribes from a topic entirely, ending all of its subscriptions
@@ -169,11 +183,10 @@ public class PubSubService: @unchecked Sendable {
         guard !config.topic.isEmpty else { throw PubSubError.invalidTopic }
         guard let pubsub = self as? PubSubCore else { throw PubSubError.notRunning }
         let handler = PubSub.SubscriptionHandler(pubSub: pubsub, topic: config.topic)
-        let legacyHandler = LegacySubscriptionHandler(handler)
         let configuration = TopicConfiguration(config)
         self.schedule { engine in
             do {
-                try await engine.subscribe(configuration, handler: legacyHandler)
+                try await engine.subscribe(configuration, handler: handler)
             } catch {
                 engine.logger.warning("Failed to subscribe to `\(configuration.topic)`: \(error)")
             }
