@@ -449,8 +449,12 @@ actor PubSubEngine {
     }
 
     private func openOutboundStream(_ protocolID: String, on connection: Connection) {
-        guard let connection = connection as? BaseConnection else {
+        guard let connection = connection as? AppConnection else {
             self.logger.debug("Unable to open a `\(protocolID)` stream on a \(type(of: connection))")
+            return
+        }
+        guard connection.acceptsNewStreams else {
+            self.logger.debug("Unable to open a `\(protocolID)` stream on a closing connection")
             return
         }
         connection.newStream(forProtocol: protocolID, mode: .ifOutboundDoesntAlreadyExist)
