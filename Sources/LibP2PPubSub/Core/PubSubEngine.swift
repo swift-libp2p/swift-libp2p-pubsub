@@ -107,9 +107,8 @@ actor PubSubEngine {
 
     /// Starts the heartbeat and, if provided, starts discovering peers via `peerEvents`
     ///
-    /// - Parameter peerEvents: Our application's `remotePeerProtocolChange` and `identifiedPeer` events
-    ///   (`app.events.subscribe(to:)`). Consuming them from a single stream means we handle peers in the order they're
-    ///   identified. Identify events carry the peer's signed peer record, which we pass on to routers that want them.
+    /// - Parameter peerEvents: Our application's `remotePeerProtocolChange` events (`app.events.subscribe(to:)`).
+    ///   Consuming them from a single stream means we handle peers in the order they're identified.
     func start(peerEvents: AsyncStream<EventBus.EventEmitter>? = nil) {
         guard !self.isRunning else { return }
         self.isRunning = true
@@ -122,30 +121,14 @@ actor PubSubEngine {
             }
         }
         if let peerEvents {
-            let protocolIDs = self.protocolIDs
-            let wantsSignedPeerRecords = self.router.wantsSignedPeerRecords
             self.discoveryTask = Task { [weak self] in
                 for await event in peerEvents {
-                    switch event {
-                    case .remotePeerProtocolChange(let change):
-                        await self?.peerProtocolsChanged(
-                            change.peer,
-                            protocols: change.protocols.map(\.stringValue),
-                            connection: change.connection
-                        )
-                    case .identifiedPeer(let identified) where wantsSignedPeerRecords:
-                        /// Verify the record here, rather than on the actor
-                        guard
-                            let record = SignedPeerRecord(
-                                identify: identified.identity,
-                                from: identified.peer,
-                                speakingAnyOf: protocolIDs
-                            )
-                        else { continue }
-                        await self?.addSignedPeerRecord(record)
-                    default:
-                        continue
-                    }
+                    guard case .remotePeerProtocolChange(let change) = event else { continue }
+                    await self?.peerProtocolsChanged(
+                        change.peer,
+                        protocols: change.protocols.map(\.stringValue),
+                        connection: change.connection
+                    )
                 }
             }
         }
