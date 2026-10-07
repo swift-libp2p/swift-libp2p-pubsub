@@ -479,13 +479,20 @@ struct GossipSubRouter: PubSubRouter {
                     outbox.dial(suggested)
                     continue
                 }
-                guard let signed = try? SignedPeerRecord(envelope: info.signedPeerRecord), signed.peer == suggested
-                else {
-                    continue
-                }
-                outbox.dial(suggested, record: signed.record)
+                guard let envelope = Self.verifiedEnvelope(info.signedPeerRecord, for: suggested) else { continue }
+                outbox.dial(suggested, record: envelope)
             }
         }
+    }
+
+    /// Opens a marshaled signed peer record envelope, returning it only if its signature verifies and the record inside
+    /// belongs to `peer` (who must also be the signer)
+    static func verifiedEnvelope(_ bytes: Data, for peer: PeerID) -> SealedEnvelope? {
+        guard let envelope = try? SealedEnvelope(marshaledEnvelope: bytes.byteArray),
+            let record = try? PeerRecord(signedEnvelope: envelope),
+            record.peerID == peer
+        else { return nil }
+        return envelope
     }
 
     /// IHAVE: request the advertised messages we haven't seen, on topics we're subscribed to.
