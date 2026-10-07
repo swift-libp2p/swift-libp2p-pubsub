@@ -476,7 +476,10 @@ extension LibP2PPubSubEngineTests {
     /// signed peer records from node1's peer store. That's the only way node2 can learn where node3 is.
     @Test(.timeLimit(.minutes(1)))
     func testPeerExchangeWithSignedPeerRecords() async throws {
-        let px = Application.PubSubServices.Provider.gossipsub(configuration: .init(), parameters: .init(peerExchange: true))
+        let px = Application.PubSubServices.Provider.gossipsub(
+            configuration: .init(),
+            parameters: .init(peerExchange: true)
+        )
         let node1 = try await Self.makeHost(px)
         let node2 = try await Self.makeHost(px)
         let node3 = try await Self.makeHost(px)

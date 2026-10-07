@@ -230,7 +230,9 @@ struct LibP2PPubSubRegressionTests {
             #expect(id == function.messageIDFunction(msg))
         }
         #expect(MessageIDStrategy.hashedSequenceNumberAndFrom.id(for: msg).count == 32)
-        #expect(MessageIDStrategy.contentHash.id(for: msg) == PubSub.MessageIDFunction.contentHash.messageIDFunction(msg))
+        #expect(
+            MessageIDStrategy.contentHash.id(for: msg) == PubSub.MessageIDFunction.contentHash.messageIDFunction(msg)
+        )
     }
 
     /// A message claiming multiple topics could bypass a topic's policy / validators, so it's rejected outright
