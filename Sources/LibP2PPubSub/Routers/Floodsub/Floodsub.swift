@@ -19,7 +19,7 @@ import LibP2P
 /// [Spec](https://github.com/libp2p/specs/blob/master/pubsub/README.md)
 ///
 /// Register it with `app.pubsub.use(.floodsub)` and access it via `app.pubsub.floodsub`.
-public final class FloodSub: PubSubService, PubSubCore, LifecycleHandler, @unchecked Sendable {
+public final class FloodSub: PubSubService, PubSubCore, AsyncPubSub, LifecycleHandler, @unchecked Sendable {
     public static let multicodec: String = "/floodsub/1.0.0"
 
     public init(application: Application, configuration: PubSubConfiguration = .init()) {

@@ -25,11 +25,11 @@ import LibP2P
 ///
 /// Specs:
 /// - [v1.0](https://github.com/libp2p/specs/blob/master/pubsub/gossipsub/gossipsub-v1.0.md)
-/// - [v1.1](https://github.com/libp2p/specs/blob/master/pubsub/gossipsub/gossipsub-v1.1.md) (without peer scoring)
+/// - [v1.1](https://github.com/libp2p/specs/blob/master/pubsub/gossipsub/gossipsub-v1.1.md) (peer scoring is opt-in, see ``GossipSubParameters/scoring``)
 /// - [v1.2](https://github.com/libp2p/specs/blob/master/pubsub/gossipsub/gossipsub-v1.2.md)
 ///
 /// Register it with `app.pubsub.use(.gossipsub)` and access it via `app.pubsub.gossipsub`.
-public final class GossipSub: PubSubService, PubSubCore, LifecycleHandler, @unchecked Sendable {
+public final class GossipSub: PubSubService, PubSubCore, AsyncPubSub, LifecycleHandler, @unchecked Sendable {
     /// Our preferred (newest) protocol
     public static let multicodec: String = GossipSub.v1_2
 
