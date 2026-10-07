@@ -842,95 +842,54 @@ struct LibP2PPubSubRouterTests {
         return Data(try record.seal(withPrivateKey: signer ?? peer).marshal())
     }
 
-    /// A serialized identify message carrying the fields we read (protocols and the signed peer record), plus one we skip
-    private static func identify(protocols: [String], envelope: Data) -> [UInt8] {
-        func field(_ number: UInt8, _ value: [UInt8]) -> [UInt8] {
-            var length = UInt64(value.count)
-            var bytes: [UInt8] = [number << 3 | 2]
-            repeat {
-                bytes.append(UInt8(length & 0x7F) | (length > 0x7F ? 0x80 : 0))
-                length >>= 7
-            } while length > 0
-            return bytes + value
-        }
-        return field(5, Array("ipfs/0.1.0".utf8))
-            + protocols.flatMap { field(3, Array($0.utf8)) }
-            + field(8, Array(envelope))
-    }
-
-    /// Signed peer records are verified, and must belong to the peer that signed them (and, via identify, the identified peer)
+    /// Signed peer records are verified, and must belong to the suggested peer (who must also have signed them)
     @Test func testSignedPeerRecordVerification() throws {
         let peer = try PeerID(.Ed25519)
         let imposter = try PeerID(.Ed25519)
 
-        let signed = try SignedPeerRecord(envelope: Self.envelope(for: peer))
-        #expect(signed.peer == peer)
-        #expect(signed.record.multiaddrs == [try Multiaddr("/ip4/127.0.0.1/tcp/4001")])
+        let envelope = try #require(GossipSubRouter.verifiedEnvelope(Self.envelope(for: peer), for: peer))
+        #expect(try PeerRecord(signedEnvelope: envelope).multiaddrs == [try Multiaddr("/ip4/127.0.0.1/tcp/4001")])
 
-        /// A tampered signature, or a record signed by another peer, is rejected
+        /// A tampered signature, a record signed by another peer, or a record for a different peer is rejected
         var tampered = try Self.envelope(for: peer)
         tampered[tampered.count - 1] ^= 0xFF
-        #expect(throws: (any Error).self) { try SignedPeerRecord(envelope: tampered) }
-        #expect(throws: (any Error).self) {
-            try SignedPeerRecord(envelope: Self.envelope(for: peer, signedBy: imposter))
-        }
-
-        /// Identify messages: the record must belong to the identified peer, who must speak one of our protocols
-        let message = Self.identify(
-            protocols: ["/ipfs/ping/1.0.0", GossipSub.v1_1],
-            envelope: try Self.envelope(for: peer)
-        )
-        #expect(
-            SignedPeerRecord(identify: message, from: peer, speakingAnyOf: [GossipSub.v1_2, GossipSub.v1_1])?.peer
-                == peer
-        )
-        #expect(SignedPeerRecord(identify: message, from: imposter, speakingAnyOf: [GossipSub.v1_1]) == nil)
-        #expect(SignedPeerRecord(identify: message, from: peer, speakingAnyOf: ["/floodsub/1.0.0"]) == nil)
-        #expect(
-            SignedPeerRecord(identify: Array(message.dropLast()), from: peer, speakingAnyOf: [GossipSub.v1_1]) == nil
-        )
+        #expect(GossipSubRouter.verifiedEnvelope(tampered, for: peer) == nil)
+        #expect(GossipSubRouter.verifiedEnvelope(try Self.envelope(for: peer, signedBy: imposter), for: peer) == nil)
+        #expect(GossipSubRouter.verifiedEnvelope(try Self.envelope(for: peer), for: imposter) == nil)
+        #expect(GossipSubRouter.verifiedEnvelope(Data([0x01, 0x02]), for: peer) == nil)
     }
 
-    /// The record book keeps each peer's most recent record, and makes room by forgetting peers we're not connected to
-    @Test func testSignedPeerRecordBook() throws {
-        let peers = try Self.peers(3)
-        func signed(_ peer: PeerID, sequenceNumber: UInt64, port: Int = 4001) throws -> SignedPeerRecord {
-            let record = PeerRecord(
-                peerID: peer,
-                multiaddrs: [try Multiaddr("/ip4/127.0.0.1/tcp/\(port)")],
-                sequenceNumber: sequenceNumber
-            )
-            return try SignedPeerRecord(envelope: Data(record.seal(withPrivateKey: peer).marshal()))
-        }
+    /// The engine attaches the signed records it finds (in our peer store) to the peers an RPC's PRUNEs suggest
+    @Test func testAttachingSignedPeerRecords() throws {
+        let (pruned, withRecord, withoutRecord) = (try PeerID(.Ed25519), try PeerID(.Ed25519), try PeerID(.Ed25519))
+        var outbox = Outbox()
+        outbox.prune("fruit", to: pruned, backoff: .seconds(60), peers: [withRecord, withoutRecord])
+        outbox.send(messages: [Self.message("banana")], to: pruned)
+        let rpc = try #require(outbox.rpcs[pruned])
+        #expect(rpc.exchangedPeers == [withRecord, withoutRecord])
+        #expect(rpc.control.prune.flatMap(\.peers).allSatisfy { !$0.hasSignedPeerRecord })
 
-        var book = SignedPeerRecordBook(capacity: 2)
-        book.insert(try signed(peers[0], sequenceNumber: 2), connected: [])
-        book.insert(try signed(peers[0], sequenceNumber: 1, port: 1), connected: [])
-        #expect(book[peers[0]]?.record.sequenceNumber == 2)
-        book.insert(try signed(peers[0], sequenceNumber: 3), connected: [])
-        #expect(book[peers[0]]?.record.sequenceNumber == 3)
+        let record = try Self.envelope(for: withRecord)
+        let attached = rpc.attachingSignedPeerRecords([withRecord: record])
+        let infos = attached.control.prune.flatMap(\.peers)
+        #expect(infos.first { $0.peerID == Data(withRecord.id) }?.signedPeerRecord == record)
+        #expect(infos.first { $0.peerID == Data(withoutRecord.id) }?.hasSignedPeerRecord == false)
+        #expect(attached.msgs == rpc.msgs)
 
-        /// Full of connected peers' records, new records are dropped. Otherwise disconnected peers' records are forgotten.
-        book.insert(try signed(peers[1], sequenceNumber: 1), connected: [])
-        book.insert(try signed(peers[2], sequenceNumber: 1), connected: [peers[0], peers[1]])
-        #expect(book[peers[2]] == nil)
-        book.insert(try signed(peers[2], sequenceNumber: 1), connected: [peers[1]])
-        #expect(Set(book.records.keys) == [peers[1], peers[2]])
+        /// RPCs that don't suggest any peers are left untouched
+        let plain = RPC.with { $0.msgs = [Self.message("cherry")] }
+        #expect(plain.exchangedPeers.isEmpty)
+        #expect(plain.attachingSignedPeerRecords([withRecord: record]) == plain)
     }
 
-    /// PX carries the signed records we hold for the peers we suggest, and the records we receive are verified before we dial
+    /// The router leaves PX records to the engine, and the records we receive are verified before we dial
     @Test func testPeerExchangeWithSignedPeerRecords() throws {
         let peers = try Self.peers(14)
         var router = Self.gossipRouter(
             peers: peers,
             parameters: .init(floodPublish: false, peerExchange: true, prunePeers: 4)
         )
-        #expect(router.wantsSignedPeerRecords)
-        #expect(!Self.gossipRouter(peers: peers).wantsSignedPeerRecords)
-        for peer in peers {
-            router.addPeer(peer, protocolID: GossipSub.v1_1, outbound: true, ip: nil)
-            router.addSignedPeerRecord(try SignedPeerRecord(envelope: Self.envelope(for: peer)))
-        }
+        for peer in peers { router.addPeer(peer, protocolID: GossipSub.v1_1, outbound: true, ip: nil) }
         _ = router.join("fruit", now: .now)
         for peer in peers {
             _ = router.handleControl(
