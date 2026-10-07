@@ -102,9 +102,6 @@ struct GossipSubRouter: PubSubRouter {
     /// peer's promise expires. Broken promises count towards the peer's behavioural penalty.
     private(set) var promises: [Data: [PeerID: Instant]] = [:]
 
-    /// Our peers' signed peer records, which we attach to the peers we suggest via PX (when peer exchange is enabled)
-    private(set) var signedRecords = SignedPeerRecordBook()
-
     /// The number of heartbeats we've performed
     private(set) var ticks: Int = 0
 
@@ -185,13 +182,6 @@ struct GossipSubRouter: PubSubRouter {
         self.unwanted.removeValue(forKey: peer)
         for topic in self.mesh.keys { self.mesh[topic]?.remove(peer) }
         for topic in self.fanout.keys { self.fanout[topic]?.remove(peer) }
-    }
-
-    /// We only need our peers' signed records to suggest them via PX
-    var wantsSignedPeerRecords: Bool { self.parameters.peerExchange }
-
-    mutating func addSignedPeerRecord(_ record: SignedPeerRecord) {
-        self.signedRecords.insert(record, connected: Set(self.peers.keys))
     }
 
     /// Update the peers subscription status for the specified topic
