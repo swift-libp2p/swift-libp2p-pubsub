@@ -41,12 +41,6 @@ protocol PubSubRouter: Sendable {
     /// Whether we should process RPCs from this peer at all (ex: GossipSub ignores peers whose score is below its graylist threshold)
     func accepts(rpcFrom peer: PeerID) -> Bool
 
-    /// Whether the router wants the signed peer records of the peers we identify (ex: GossipSub, to pass them on via PX)
-    var wantsSignedPeerRecords: Bool { get }
-
-    /// A peer that speaks one of our protocols was identified, and sent us its (verified) signed peer record
-    mutating func addSignedPeerRecord(_ record: SignedPeerRecord)
-
     /// A peer announced that its subscription to the `topic` has changed.
     mutating func handleSubscription(from peer: PeerID, topic: String, subscribed: Bool)
 
@@ -98,10 +92,6 @@ protocol PubSubRouter: Sendable {
 
 extension PubSubRouter {
     func accepts(rpcFrom peer: PeerID) -> Bool { true }
-
-    var wantsSignedPeerRecords: Bool { false }
-
-    mutating func addSignedPeerRecord(_ record: SignedPeerRecord) {}
 
     mutating func received(_ message: RPC.Message, id: Data, topic: String, from source: PeerID, now: Instant) -> Outbox
     {
