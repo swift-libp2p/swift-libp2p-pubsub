@@ -73,22 +73,29 @@ public class PubSubService: @unchecked Sendable {
         logger.logLevel = application.logger.logLevel
 
         /// Connects to a peer the router asked for (ex: a direct peer, or one suggested via peer exchange).
-        /// We connect by opening an identify stream, once the peer's identified our discovery opens a stream using the best
-        /// protocol it supports, exactly as it does for any other peer.
-        /// A verified peer record (from PX) is added to our peer store first, so we know where to find the peer.
+        /// Once the peer's identified, our discovery opens a stream using the best protocol it supports, exactly as it
+        /// does for any other peer.
+        /// A verified signed peer record (from PX) is added to our peer store first (when present), so we know where to
+        /// find the peer (and can pass its record on to others during peer exchange).
         let dialLogger = logger
-        let dialer: @Sendable (PeerID, PeerRecord?) async -> Void = { [weak application] peer, record in
+        let dialer: @Sendable (PeerID, SealedEnvelope?) async -> Void = { [weak application] peer, record in
             guard let application else { return }
             do {
-                if let record { try await application.peers.add(record: record) }
+                if let record { try await application.peers.add(signedRecord: record) }
                 if let address = knownAddresses[peer] {
-                    try await application.newStream(to: address, forProtocol: "/ipfs/id/1.0.0")
+                    try await application.connect(to: address)
                 } else {
-                    try await application.newStream(to: peer, forProtocol: "/ipfs/id/1.0.0")
+                    try await application.connect(to: peer)
                 }
             } catch {
                 dialLogger.debug("Failed to connect to \(peer): \(error)")
             }
+        }
+
+        /// Our peer store holds the signed peer records identify verified, we pass them on via peer exchange
+        let signedPeerRecord: @Sendable (PeerID) async -> SealedEnvelope? = { [weak application] peer in
+            /// The peer store throws for peers it doesn't know
+            try? await application?.peers.getMostRecentSignedRecord(forPeer: peer)
         }
 
         let engine = PubSubEngine(
@@ -97,7 +104,8 @@ public class PubSubService: @unchecked Sendable {
             configuration: configuration,
             router: router,
             logger: logger,
-            dialer: dialer
+            dialer: dialer,
+            signedPeerRecord: signedPeerRecord
         )
         self.engine = engine
         self.eventLoop = application.eventLoopGroup.next()

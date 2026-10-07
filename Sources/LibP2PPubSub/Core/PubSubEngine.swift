@@ -69,8 +69,11 @@ actor PubSubEngine {
     private let clock = ContinuousClock()
 
     /// Connects to peers the router asks for (ex: direct peers, or peers suggested via peer exchange)
-    /// The peer's (verified) record, when we have one, tells the dialer where to find it.
-    private let dialer: (@Sendable (PeerID, PeerRecord?) async -> Void)?
+    /// The peer's (verified) signed record, when we have one, tells the dialer where to find it.
+    private let dialer: (@Sendable (PeerID, SealedEnvelope?) async -> Void)?
+
+    /// Looks up a peer's most recent signed peer record, which we attach to the peers we suggest via peer exchange
+    private let signedPeerRecord: (@Sendable (PeerID) async -> SealedEnvelope?)?
 
     /// The peers we're currently dialing
     private var pendingDials: Set<PeerID> = []
@@ -84,7 +87,8 @@ actor PubSubEngine {
         configuration: PubSubConfiguration,
         router: any PubSubRouter,
         logger: Logger,
-        dialer: (@Sendable (PeerID, PeerRecord?) async -> Void)? = nil
+        dialer: (@Sendable (PeerID, SealedEnvelope?) async -> Void)? = nil,
+        signedPeerRecord: (@Sendable (PeerID) async -> SealedEnvelope?)? = nil
     ) {
         precondition(!protocolIDs.isEmpty, "A PubSub engine must speak at least one protocol")
         self.protocolIDs = protocolIDs
@@ -93,6 +97,7 @@ actor PubSubEngine {
         self.router = router
         self.logger = logger
         self.dialer = dialer
+        self.signedPeerRecord = signedPeerRecord
         self.seen = SeenCache(ttl: configuration.seenTTL)
         /// Like go-libp2p-pubsub, sequence numbers start at the current time (in nanoseconds) and increase monotonically
         self.sequenceNumber = UInt64(max(0, Date().timeIntervalSince1970 * 1_000_000_000))
