@@ -121,7 +121,7 @@ public class PubSubService: @unchecked Sendable {
         /// Learn about peers that support our protocols as they're identified. The engine consumes these events from a
         /// single stream (so they're handled in order) for as long as it's running, and the subscription ends when it stops.
         self.peerEvents = { [weak application] in
-            application?.events.subscribe(to: [.remotePeerProtocolChange, .identifiedPeer])
+            application?.events.subscribe(to: [.remotePeerProtocolChange])
         }
     }
 
